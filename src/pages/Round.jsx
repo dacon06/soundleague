@@ -618,6 +618,11 @@ export default function RoundPage() {
           )}
         </div>
         <h1 style={{ fontSize: 32, lineHeight: 1.1 }}>{round.prompt}</h1>
+        {round.description && (
+          <p style={{ fontSize: 15, color: 'var(--text-dim)', marginTop: 8, fontStyle: 'italic', lineHeight: 1.5 }}>
+            {round.description}
+          </p>
+        )}
         {group && (
           <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>{group.name}</p>
         )}

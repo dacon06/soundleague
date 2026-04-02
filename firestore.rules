@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isLoggedIn() {
+      return request.auth != null;
+    }
+
+    function isGroupMember(groupId) {
+      return isLoggedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+    }
+
+    function isGroupAdmin(groupId) {
+      return isLoggedIn() &&
+        request.auth.uid == get(/databases/$(database)/documents/groups/$(groupId)).data.createdBy;
+    }
+
+    // Users can read/write their own profile
+    match /users/{userId} {
+      allow read: if isLoggedIn();
+      allow write: if request.auth.uid == userId;
+    }
+
+    // Groups: members can read, anyone logged in can create
+    match /groups/{groupId} {
+      allow read: if isLoggedIn();
+      allow create: if isLoggedIn();
+      allow update: if isGroupMember(groupId);
+      allow delete: if isGroupAdmin(groupId);
+
+      // Chat messages inside groups
+      match /messages/{messageId} {
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId) && request.auth.uid == request.resource.data.userId;
+        allow delete: if request.auth.uid == resource.data.userId;
+      }
+    }
+
+    // Rounds: group members can read, group admin can create/update
+    match /rounds/{roundId} {
+      allow read: if isLoggedIn();
+      allow create: if isGroupAdmin(resource.data.groupId) || isLoggedIn();
+      allow update: if isGroupMember(resource.data.groupId);
+      allow delete: if isGroupAdmin(resource.data.groupId);
+    }
+
+    // Submissions: group members only
+    match /submissions/{submissionId} {
+      allow read: if isLoggedIn();
+      allow create: if isLoggedIn() && request.auth.uid == request.resource.data.userId;
+      allow update, delete: if request.auth.uid == resource.data.userId;
+    }
+
+    // Votes: logged in users, own votes only
+    match /votes/{voteId} {
+      allow read: if isLoggedIn();
+      allow create: if isLoggedIn() && request.auth.uid == request.resource.data.voterId;
+      allow update, delete: if request.auth.uid == resource.data.voterId;
+    }
+  }
+}

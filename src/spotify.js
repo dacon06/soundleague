@@ -134,7 +134,7 @@ async function spotifyFetch(endpoint, options = {}) {
 }
 
 export async function searchTracks(query) {
-  const data = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track&limit=20&market=from_token`)
+  const data = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track&limit=10&market=from_token`)
   return data.tracks.items
 }
 

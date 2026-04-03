@@ -3,15 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import Avatar from '../components/Avatar'
 import Chat from '../components/Chat'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   orderBy, addDoc, updateDoc, serverTimestamp, getDocs,
 } from 'firebase/firestore'
-
-function Avatar({ name, size = '' }) {
-  return <div className={`avatar ${size}`}>{(name || '?')[0].toUpperCase()}</div>
-}
 
 function StatusBadge({ status }) {
   const map = {
@@ -23,93 +20,107 @@ function StatusBadge({ status }) {
   return <span className={`badge ${info.cls}`}>{info.label}</span>
 }
 
-// ─── Normalize queue item: always return {name, description} ───
 function toItem(raw) {
   if (typeof raw === 'string') return { name: raw, description: '' }
   return { name: raw.name || '', description: raw.description || '' }
 }
 
-// ─── Queue Modal ───
-function QueueModal({ group, onClose }) {
+// ─── Queue Modal (file import only) ───
+function QueueModal({ group, onClose, onStarted }) {
+  const { user } = useAuth()
   const fileRef = useRef()
-  const [items, setItems] = useState(() =>
-    (group.categoryQueue || []).map(toItem)
-  )
+  const [items, setItems] = useState(() => (group.categoryQueue || []).map(toItem))
   const [saving, setSaving] = useState(false)
   const [importError, setImportError] = useState('')
+  const [importCount, setImportCount] = useState(null)
 
-  const presets = [
-    { name: 'Guilty Pleasure',        description: 'Ein Song den du heimlich liebst aber nie zugeben würdest' },
-    { name: 'Beste 90er',             description: 'Der beste Song aus den Neunzigern' },
-    { name: 'Instrumental',           description: 'Kein Text erlaubt — nur Musik' },
-    { name: 'Erste Liebe',            description: 'Der Song der dich an deine erste Liebe erinnert' },
-    { name: 'Schlechter Tag',         description: 'Was hörst du wenn alles schief läuft?' },
-    { name: 'Schlafenzeit',           description: 'Perfekt zum Einschlafen oder Träumen' },
-    { name: 'Road Trip',              description: 'Fenster runter, laut aufdrehen' },
-    { name: 'Workout',                description: 'Bringt dich in Bewegung' },
-    { name: 'Partyknaller',           description: 'Bringt jeden zum Tanzen' },
-    { name: 'Unbekannter Schatz',     description: 'Ein Song den wahrscheinlich niemand kennt' },
-    { name: 'Film-Soundtrack',        description: 'Aus einem Film, einer Serie oder einem Spiel' },
-    { name: 'Kindheitserinnerung',    description: 'Klingt nach deiner Kindheit' },
-    { name: 'Breakup Song',           description: 'Herzschmerz in Musikform' },
-    { name: 'Sommer-Hit',             description: 'Klingt nach Sonne und Urlaub' },
-    { name: 'Nur die Basslinie zählt',description: 'Der Groove muss sitzen' },
-  ]
-
-  // ─── Parse CSV or JSON file ───
   const handleFileImport = (e) => {
     setImportError('')
+    setImportCount(null)
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
       const text = ev.target.result.trim()
       try {
-        // Try JSON first
         if (file.name.endsWith('.json')) {
           const parsed = JSON.parse(text)
           if (!Array.isArray(parsed)) throw new Error('JSON muss ein Array sein')
-          const newItems = parsed.map(item => {
-            if (typeof item === 'string') return { name: item, description: '' }
-            return { name: item.name || item.kategorie || '', description: item.description || item.beschreibung || '' }
-          }).filter(i => i.name)
-          setItems(prev => [...prev, ...newItems])
+          const newItems = parsed.map(item =>
+            typeof item === 'string'
+              ? { name: item, description: '' }
+              : { name: item.name || item.kategorie || '', description: item.description || item.beschreibung || '' }
+          ).filter(i => i.name)
+          setItems(newItems)
+          setImportCount(newItems.length)
           return
         }
-        // CSV: name,description (comma or semicolon separated)
+        // CSV
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
         const newItems = lines.map(line => {
-          // Support comma and semicolon as separator
           const sep = line.includes(';') ? ';' : ','
           const parts = line.split(sep).map(p => p.trim().replace(/^["']|["']$/g, ''))
           return { name: parts[0] || '', description: parts[1] || '' }
         }).filter(i => i.name)
-        setItems(prev => [...prev, ...newItems])
+        setItems(newItems)
+        setImportCount(newItems.length)
       } catch (err) {
-        setImportError('Fehler beim Lesen: ' + err.message)
+        setImportError('Fehler: ' + err.message)
       }
     }
     reader.readAsText(file)
-    e.target.value = '' // reset so same file can be re-imported
-  }
-
-  const updateItem = (i, field, value) => {
-    setItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item))
+    e.target.value = ''
   }
 
   const removeItem = (i) => setItems(prev => prev.filter((_, idx) => idx !== i))
 
-  const addPreset = (preset) => {
-    if (!items.find(it => it.name === preset.name)) {
-      setItems(prev => [...prev, preset])
-    }
-  }
-
-  const addEmpty = () => setItems(prev => [...prev, { name: '', description: '' }])
-
   const handleSave = async () => {
     setSaving(true)
     const clean = items.filter(i => i.name.trim())
+
+    // Check if we should auto-start first round
+    const groupSnap = await getDoc(doc(db, 'groups', group.id))
+    const currentRoundId = groupSnap.data()?.currentRoundId
+
+    let shouldAutoStart = false
+    if (clean.length > 0) {
+      if (!currentRoundId) {
+        shouldAutoStart = true
+      } else {
+        // Check if current round is finished
+        const roundSnap = await getDoc(doc(db, 'rounds', currentRoundId))
+        if (!roundSnap.exists() || roundSnap.data()?.status === 'results') {
+          shouldAutoStart = true
+        }
+      }
+    }
+
+    if (shouldAutoStart) {
+      const first = clean[0]
+      const now = Date.now()
+      const roundRef = await addDoc(collection(db, 'rounds'), {
+        groupId: group.id,
+        prompt: first.name,
+        description: first.description || '',
+        status: 'submission',
+        submissionDeadline: new Date(now + 120 * 3600_000),
+        votingDeadline:     new Date(now + 168 * 3600_000),
+        playlistId: null,
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        submissionNotificationSent: false,
+        votingNotificationSent: false,
+        fromQueue: true,
+      })
+      await updateDoc(doc(db, 'groups', group.id), {
+        currentRoundId: roundRef.id,
+        categoryQueue: clean.slice(1),
+      })
+      setSaving(false)
+      onStarted(roundRef.id)
+      return
+    }
+
     await updateDoc(doc(db, 'groups', group.id), { categoryQueue: clean })
     setSaving(false)
     onClose()
@@ -120,154 +131,67 @@ function QueueModal({ group, onClose }) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: '95dvh' }}>
         <div className="modal-handle" />
         <div className="modal-header">
-          <h3 style={{ fontSize: 22 }}>Warteschlange</h3>
+          <h3 style={{ fontSize: 22 }}>Warteschlange importieren</h3>
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
 
-          {/* Import buttons */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button onClick={() => fileRef.current.click()} className="btn btn-secondary btn-sm" style={{ flex: 1 }}>
-              📁 CSV / JSON importieren
-            </button>
-            <button onClick={addEmpty} className="btn btn-ghost btn-sm" style={{ flex: 1 }}>
-              + Zeile hinzufügen
-            </button>
-            <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
+          {/* Format hint */}
+          <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+            <strong style={{ color: 'var(--text)' }}>CSV Format</strong> (eine Kategorie pro Zeile):<br />
+            <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Ein Song den du heimlich liebst</code><br />
+            <code style={{ color: 'var(--accent)' }}>Beste 90er,Der beste Song aus den Neunzigern</code><br />
+            <br />
+            <strong style={{ color: 'var(--text)' }}>JSON Format</strong>:<br />
+            <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
           </div>
+
+          {/* Import button */}
+          <button
+            onClick={() => fileRef.current.click()}
+            className="btn btn-primary btn-full btn-lg"
+            style={{ marginBottom: 12 }}
+          >
+            📁 CSV oder JSON Datei importieren
+          </button>
+          <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
 
           {importError && <div className="error-msg">{importError}</div>}
 
-          {/* Format hint */}
-          <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.7 }}>
-            <strong style={{ color: 'var(--text)' }}>CSV Format:</strong><br />
-            <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Ein Song den du heimlich liebst</code><br />
-            <code style={{ color: 'var(--accent)' }}>Beste 90er,Der beste Song aus den Neunzigern</code><br />
-            <span style={{ marginTop: 4, display: 'block' }}>Oder <strong style={{ color: 'var(--text)' }}>JSON</strong>: {`[{"name":"...","description":"..."}]`}</span>
-          </div>
-
-          {/* Item list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {items.length === 0 && (
-              <p style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: 16 }}>
-                Noch keine Kategorien — importiere eine Datei oder füge Zeilen hinzu.
-              </p>
-            )}
-            {items.map((item, i) => (
-              <div key={i} style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: 12, border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                  <span style={{ fontFamily: 'Fraunces', fontSize: 18, color: 'var(--text-muted)', paddingTop: 8, minWidth: 24, textAlign: 'center' }}>{i + 1}</span>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <input
-                      value={item.name}
-                      onChange={e => updateItem(i, 'name', e.target.value)}
-                      placeholder="Kategoriename"
-                      style={{ fontSize: 14, fontWeight: 700 }}
-                    />
-                    <input
-                      value={item.description}
-                      onChange={e => updateItem(i, 'description', e.target.value)}
-                      placeholder="Beschreibung (optional)"
-                      style={{ fontSize: 13 }}
-                    />
-                  </div>
-                  <button onClick={() => removeItem(i)} className="btn btn-ghost btn-sm" style={{ padding: '6px 8px', flexShrink: 0, color: 'var(--danger)' }}>✕</button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Stats */}
-          {items.length > 0 && (
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
-              {items.filter(i => i.name).length} Kategorien · ~{items.filter(i => i.name).length * 7} Tage Gesamtdauer
-            </p>
+          {importCount !== null && (
+            <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 12, fontSize: 13, color: 'var(--accent)' }}>
+              ✓ {importCount} Kategorien importiert
+            </div>
           )}
 
-          {/* Presets */}
-          <div className="section-title" style={{ marginBottom: 8 }}>Vorschläge</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
-            {presets.map(p => (
-              <button
-                key={p.name}
-                onClick={() => addPreset(p)}
-                className="btn btn-ghost btn-sm"
-                disabled={!!items.find(it => it.name === p.name)}
-                style={{ borderRadius: 100, fontSize: 11, padding: '3px 10px' }}
-              >
-                {items.find(it => it.name === p.name) ? '✓' : '+'} {p.name}
+          {/* Preview list */}
+          {items.length > 0 && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div className="section-title" style={{ margin: 0 }}>Vorschau</div>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {items.length} Kategorien · ~{items.length * 7} Tage
+                </span>
+              </div>
+
+              <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                {items.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface2)', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border)' }}>
+                    <span style={{ fontFamily: 'Fraunces', fontSize: 16, color: 'var(--text-muted)', width: 24, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                      {item.description && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.description}</div>}
+                    </div>
+                    <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, padding: 4, flexShrink: 0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={handleSave} className="btn btn-primary btn-full btn-lg" disabled={saving || items.length === 0}>
+                {saving ? '…' : items.length > 0 && !group.currentRoundId ? `🚀 Speichern & erste Runde starten` : 'Warteschlange speichern'}
               </button>
-            ))}
-          </div>
-
-          <button onClick={handleSave} className="btn btn-primary btn-full" disabled={saving}>
-            {saving ? '…' : 'Warteschlange speichern'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Create Round Modal (manual) ───
-function CreateRoundModal({ group, onClose, onCreate }) {
-  const { user } = useAuth()
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  const handleCreate = async (e) => {
-    e.preventDefault()
-    if (!name.trim()) return
-    setLoading(true)
-    setError('')
-    try {
-      const now = Date.now()
-      const roundRef = await addDoc(collection(db, 'rounds'), {
-        groupId: group.id,
-        prompt: name.trim(),
-        description: description.trim(),
-        status: 'submission',
-        submissionDeadline: new Date(now + 120 * 3600_000),
-        votingDeadline:     new Date(now + 168 * 3600_000),
-        playlistId: null,
-        createdBy: user.uid,
-        createdAt: serverTimestamp(),
-        submissionNotificationSent: false,
-        votingNotificationSent: false,
-      })
-      await updateDoc(doc(db, 'groups', group.id), { currentRoundId: roundRef.id })
-      onCreate(roundRef.id)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-handle" />
-        <div className="modal-header">
-          <h3 style={{ fontSize: 22 }}>Runde manuell starten</h3>
-          <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
-        </div>
-        <div className="modal-body">
-          {error && <div className="error-msg">{error}</div>}
-          <div className="form-group">
-            <label>Kategoriename</label>
-            <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="z.B. Guilty Pleasure" required />
-          </div>
-          <div className="form-group">
-            <label>Beschreibung (optional)</label>
-            <input value={description} onChange={e => setDescription(e.target.value)} placeholder="z.B. Ein Song den du heimlich liebst…" />
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 16 }}>⏱ 5 Tage Einreichung · 2 Tage Abstimmung</p>
-          <button onClick={handleCreate} className="btn btn-primary btn-full btn-lg" disabled={loading || !name.trim()}>
-            {loading ? '…' : 'Runde starten'}
-          </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -448,16 +372,30 @@ export default function GroupPage() {
       <button onClick={() => navigate('/')} className="btn btn-ghost btn-sm" style={{ marginBottom: 12 }}>← Zurück</button>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ fontSize: 26 }}>{group.name}</h1>
           {group.description && <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 4 }}>{group.description}</p>}
-          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>{group.members.length} Mitglieder · {group.votesPerMember} Stimmen/Runde</p>
         </div>
         <button onClick={() => setModal('invite')} className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16,6 12,2 8,6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
           Einladen
         </button>
+      </div>
+
+      {/* Members row with avatars */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+        {group.members.map(uid => (
+          <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <Avatar name={group.memberNames?.[uid] || 'Anonym'} uid={uid} size={44} />
+            <span style={{ fontSize: 10, color: uid === user.uid ? 'var(--accent)' : 'var(--text-dim)', maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {uid === user.uid ? 'Du' : (group.memberNames?.[uid] || 'Anonym').split(' ')[0]}
+            </span>
+          </div>
+        ))}
+        <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>
+          {group.votesPerMember} Stimmen/Runde
+        </div>
       </div>
 
       <NotificationBanner />
@@ -480,10 +418,9 @@ export default function GroupPage() {
       {tab === 'runden' && (
         <div>
           {isAdmin && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <button onClick={() => setModal('createRound')} className="btn btn-primary">+ Manuelle Runde</button>
-              <button onClick={() => setModal('queue')} className="btn btn-secondary">⏭ Warteschlange</button>
-            </div>
+            <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 16 }}>
+              ⏭ Warteschlange importieren
+            </button>
           )}
           {queueLength > 0 && (
             <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--accent)' }}>
@@ -494,7 +431,7 @@ export default function GroupPage() {
             <div className="empty-state">
               <div className="empty-state-icon">🎶</div>
               <h3>Noch keine Runden</h3>
-              <p>{isAdmin ? 'Starte eine Runde oder füge Kategorien zur Warteschlange hinzu.' : 'Der Admin startet bald die erste Runde.'}</p>
+              <p>{isAdmin ? 'Importiere Kategorien — die erste Runde startet automatisch.' : 'Der Admin startet bald die erste Runde.'}</p>
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -505,12 +442,9 @@ export default function GroupPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>RUNDE {rounds.length - i}</span>
                       <StatusBadge status={round.status} />
-                      {round.fromQueue && <span className="badge badge-dim">Queue</span>}
                     </div>
                     <h3 style={{ fontSize: 20, marginBottom: round.description ? 4 : 8 }}>{round.prompt}</h3>
-                    {round.description && (
-                      <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 8, fontStyle: 'italic' }}>{round.description}</p>
-                    )}
+                    {round.description && <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 8, fontStyle: 'italic' }}>{round.description}</p>}
                     {round.status === 'submission' && <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>Einreichung: {formatDeadline(round.submissionDeadline)}</p>}
                     {round.status === 'voting'     && <p style={{ fontSize: 12, color: 'var(--accent2)' }}>Abstimmung: {formatDeadline(round.votingDeadline)}</p>}
                     {round.status === 'results' && round.playlistId && (
@@ -545,12 +479,12 @@ export default function GroupPage() {
       {/* ── Queue Tab ── */}
       {tab === 'warteschlange' && (
         <div>
-          {isAdmin && <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 20 }}>Warteschlange bearbeiten</button>}
+          {isAdmin && <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 20 }}>Warteschlange importieren</button>}
           {queueLength === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">⏭</div>
               <h3>Warteschlange leer</h3>
-              <p>{isAdmin ? 'Füge Kategorien hinzu oder importiere eine CSV-Datei.' : 'Keine Kategorien in der Warteschlange.'}</p>
+              <p>{isAdmin ? 'Importiere eine CSV oder JSON Datei mit Kategorien.' : 'Keine Kategorien in der Warteschlange.'}</p>
             </div>
           ) : (
             <div className="card">
@@ -583,7 +517,7 @@ export default function GroupPage() {
             leaderboard.map((entry, i) => (
               <div key={entry.uid} className="leaderboard-row">
                 <div className={`leaderboard-rank ${i < 3 ? 'top' : ''}`}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</div>
-                <Avatar name={entry.name} />
+                <Avatar name={entry.name} uid={entry.uid} size={36} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: entry.uid === user.uid ? 700 : 400 }}>{entry.name} {entry.uid === user.uid && '(Du)'}</div>
                 </div>
@@ -604,9 +538,8 @@ export default function GroupPage() {
         </div>
       )}
 
-      {modal === 'createRound' && <CreateRoundModal group={group} onClose={() => setModal(null)} onCreate={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} />}
-      {modal === 'queue'       && <QueueModal group={group} onClose={() => setModal(null)} />}
-      {modal === 'invite'      && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
+      {modal === 'queue'   && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} />}
+      {modal === 'invite'  && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
     </div>
   )
 }

@@ -3,14 +3,52 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import SpotifySearch from '../components/SpotifySearch'
+import Avatar from '../components/Avatar'
 import { isSpotifyConnected, initiateSpotifyAuth, getSpotifyUser, createPlaylist, addTracksToPlaylist } from '../spotify'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   addDoc, updateDoc, serverTimestamp, getDocs, deleteDoc
 } from 'firebase/firestore'
 
-function Avatar({ name, size = '' }) {
-  return <div className={`avatar ${size}`}>{(name || '?')[0].toUpperCase()}</div>
+
+
+// ─── Shared Playlist Button ───
+function PlaylistButton({ round, roundId, submissions }) {
+  const [creating, setCreating] = useState(false)
+
+  const handleCreate = async () => {
+    if (!isSpotifyConnected()) {
+      sessionStorage.setItem("spotify_return_to", window.location.pathname)
+      initiateSpotifyAuth()
+      return
+    }
+    setCreating(true)
+    try {
+      const spotifyUser = await getSpotifyUser()
+      const playlist = await createPlaylist(
+        spotifyUser.id,
+        `Soundleague: ${round.prompt}`,
+        `Playlist fuer die Runde "${round.prompt}"`
+      )
+      await addTracksToPlaylist(playlist.id, submissions.map(s => s.trackUri))
+      await updateDoc(doc(db, "rounds", roundId), { playlistId: playlist.id })
+      window.open(`https://open.spotify.com/playlist/${playlist.id}`, "_blank")
+    } catch (err) {
+      alert("Fehler: " + err.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  if (round.playlistId) return (
+    <a href={`https://open.spotify.com/playlist/${round.playlistId}`} target="_blank" rel="noreferrer" className="btn btn-spotify btn-full btn-lg" style={{ marginBottom: 16 }}>🎵 Playlist auf Spotify oeffnen</a>
+  )
+
+  return (
+    <button onClick={handleCreate} className="btn btn-spotify btn-full btn-lg" disabled={creating || submissions.length === 0} style={{ marginBottom: 16 }}>
+      {creating ? "..." : "🎵 Spotify Playlist erstellen"}
+    </button>
+  )
 }
 
 // ─── Phase: Submission ───
@@ -142,7 +180,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
           const name = group.memberNames?.[uid] || 'Anonym'
           return (
             <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <Avatar name={name} />
+              <Avatar name={name} size={36} />
               <span style={{ flex: 1, fontSize: 14 }}>{name} {uid === user.uid && '(Du)'}</span>
               {hasSubmitted
                 ? <span className="badge badge-green">✓ Eingereicht</span>
@@ -260,6 +298,8 @@ function VotingPhase({ round, group, groupId, roundId }) {
 
   return (
     <div>
+      <PlaylistButton round={round} roundId={roundId} submissions={submissions} />
+
       {/* Vote counter */}
       <div className="card" style={{ marginBottom: 16, background: 'var(--accent2-dim)', borderColor: 'rgba(232,168,56,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -426,27 +466,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
 
   return (
     <div>
-      {/* Playlist button */}
-      <div style={{ marginBottom: 20 }}>
-        {round.playlistId ? (
-          <a
-            href={`https://open.spotify.com/playlist/${round.playlistId}`}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-spotify btn-full btn-lg"
-          >
-            🎵 Playlist auf Spotify öffnen
-          </a>
-        ) : (
-          <button
-            onClick={handleCreatePlaylist}
-            className="btn btn-spotify btn-full btn-lg"
-            disabled={creatingPlaylist}
-          >
-            {creatingPlaylist ? '…' : '🎵 Spotify Playlist erstellen'}
-          </button>
-        )}
-      </div>
+      <PlaylistButton round={round} roundId={roundId} submissions={submissions} />
 
       {/* Results */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -483,7 +503,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
 
               {/* Submitter */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <Avatar name={sub.userName} size="avatar-sm" />
+                <Avatar name={sub.userName} size={28} />
                 <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
                   Eingereicht von <strong style={{ color: 'var(--text)' }}>{sub.userName}</strong>
                   {isOwn && ' (Du)'}
@@ -498,7 +518,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
                     const voterName = group?.memberNames?.[vote.voterId] || 'Anonym'
                     return (
                       <div key={vote.id} style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-                        <Avatar name={voterName} size="avatar-sm" />
+                        <Avatar name={voterName} size={28} />
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                             <span style={{ fontSize: 13 }}>

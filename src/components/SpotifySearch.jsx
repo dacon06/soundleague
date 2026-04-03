@@ -20,7 +20,7 @@ export default function SpotifySearch({ onSelect, onClose }) {
 
   const doSearch = useCallback(
     debounce(async (q) => {
-      if (!q.trim()) { setResults([]); return }
+      if (q.trim().length < 3) { setResults([]); return }
       setLoading(true)
       setError('')
       try {

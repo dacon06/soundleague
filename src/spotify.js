@@ -8,7 +8,6 @@ const SCOPES = [
   'playlist-modify-private',
 ].join(' ')
 
-// --- PKCE helpers ---
 function generateRandomString(length) {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
   const values = crypto.getRandomValues(new Uint8Array(length))
@@ -25,7 +24,6 @@ function base64encode(input) {
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
 }
 
-// --- Auth ---
 export async function initiateSpotifyAuth() {
   const codeVerifier = generateRandomString(64)
   const codeChallenge = base64encode(await sha256(codeVerifier))
@@ -109,28 +107,34 @@ export function disconnectSpotify() {
   localStorage.removeItem('spotify_code_verifier')
 }
 
-// --- API calls ---
+// --- API calls --- only add Content-Type for non-GET requests
 async function spotifyFetch(endpoint, options = {}) {
   const token = await getSpotifyToken()
   if (!token) throw new Error('Nicht mit Spotify verbunden')
 
+  const isGet = !options.method || options.method === 'GET'
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(isGet ? {} : { 'Content-Type': 'application/json' }),
+    ...options.headers,
+  }
+
   const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   })
 
   if (response.status === 204) return null
   const data = await response.json()
-  if (!response.ok) throw new Error(data.error?.message || 'Spotify API Fehler')
+  if (!response.ok) {
+    console.error('Spotify API error:', data)
+    throw new Error(data.error?.message || 'Spotify API Fehler ' + response.status)
+  }
   return data
 }
 
 export async function searchTracks(query) {
-  const data = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track&limit=20`)
+  const data = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track&limit=20&market=from_token`)
   return data.tracks.items
 }
 

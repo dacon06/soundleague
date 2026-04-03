@@ -143,7 +143,7 @@ export async function getSpotifyUser() {
 }
 
 export async function createPlaylist(userId, name, description) {
-  return spotifyFetch(`/users/${userId}/playlists`, {
+  return spotifyFetch(`/me/playlists`, {
     method: 'POST',
     body: JSON.stringify({ name, description, public: true }),
   })

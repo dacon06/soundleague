@@ -41,3 +41,4 @@ npm install && npm run dev
 3. Alle VITE_* Env-Vars in Netlify setzen
 4. VITE_SPOTIFY_REDIRECT_URI auf Netlify-URL setzen
 5. Netlify-URL in Spotify Dashboard als Redirect URI eintragen
+# force rebuild

@@ -10,15 +10,13 @@ import {
   addDoc, updateDoc, serverTimestamp, getDocs, deleteDoc
 } from 'firebase/firestore'
 
-
-
 // ─── Shared Playlist Button ───
 function PlaylistButton({ round, roundId, submissions }) {
   const [creating, setCreating] = useState(false)
 
   const handleCreate = async () => {
     if (!isSpotifyConnected()) {
-      sessionStorage.setItem("spotify_return_to", window.location.pathname)
+      sessionStorage.setItem('spotify_return_to', window.location.pathname)
       initiateSpotifyAuth()
       return
     }
@@ -28,25 +26,40 @@ function PlaylistButton({ round, roundId, submissions }) {
       const playlist = await createPlaylist(
         spotifyUser.id,
         `Soundleague: ${round.prompt}`,
-        `Playlist fuer die Runde "${round.prompt}"`
+        `Playlist für die Runde "${round.prompt}"`
       )
       await addTracksToPlaylist(playlist.id, submissions.map(s => s.trackUri))
-      await updateDoc(doc(db, "rounds", roundId), { playlistId: playlist.id })
-      window.open(`https://open.spotify.com/playlist/${playlist.id}`, "_blank")
+      await updateDoc(doc(db, 'rounds', roundId), { playlistId: playlist.id })
+      window.open(`https://open.spotify.com/playlist/${playlist.id}`, '_blank')
     } catch (err) {
-      alert("Fehler: " + err.message)
+      alert('Fehler: ' + err.message)
     } finally {
       setCreating(false)
     }
   }
 
-  if (round.playlistId) return (
-    <a href={`https://open.spotify.com/playlist/${round.playlistId}`} target="_blank" rel="noreferrer" className="btn btn-spotify btn-full btn-lg" style={{ marginBottom: 16 }}>🎵 Playlist auf Spotify oeffnen</a>
-  )
+  if (round.playlistId) {
+    return (
+      <a
+        href={`https://open.spotify.com/playlist/${round.playlistId}`}
+        target="_blank"
+        rel="noreferrer"
+        className="btn btn-spotify btn-full btn-lg"
+        style={{ marginBottom: 16 }}
+      >
+        🎵 Playlist auf Spotify öffnen
+      </a>
+    )
+  }
 
   return (
-    <button onClick={handleCreate} className="btn btn-spotify btn-full btn-lg" disabled={creating || submissions.length === 0} style={{ marginBottom: 16 }}>
-      {creating ? "..." : "🎵 Spotify Playlist erstellen"}
+    <button
+      onClick={handleCreate}
+      className="btn btn-spotify btn-full btn-lg"
+      disabled={creating || submissions.length === 0}
+      style={{ marginBottom: 16 }}
+    >
+      {creating ? '…' : '🎵 Spotify Playlist erstellen'}
     </button>
   )
 }
@@ -59,6 +72,8 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
   const [submissions, setSubmissions] = useState([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [comment, setComment] = useState('')
+  const [editingComment, setEditingComment] = useState(false)
 
   const connected = isSpotifyConnected()
 
@@ -67,7 +82,9 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
     return onSnapshot(q, snap => {
       const subs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       setSubmissions(subs)
-      setMySubmission(subs.find(s => s.userId === user.uid) || null)
+      const mine = subs.find(s => s.userId === user.uid)
+      setMySubmission(mine || null)
+      if (mine) setComment(mine.submissionComment || '')
       setLoading(false)
     })
   }, [roundId, user.uid])
@@ -76,7 +93,6 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
     setShowSearch(false)
     setSubmitting(true)
     try {
-      // Remove previous submission
       if (mySubmission) {
         await deleteDoc(doc(db, 'submissions', mySubmission.id))
       }
@@ -92,6 +108,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
         albumName: track.album?.name || '',
         albumArt: track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || '',
         previewUrl: track.preview_url || null,
+        submissionComment: comment,
         createdAt: serverTimestamp(),
       })
     } catch (err) {
@@ -99,6 +116,14 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleSaveComment = async () => {
+    if (!mySubmission) return
+    await updateDoc(doc(db, 'submissions', mySubmission.id), {
+      submissionComment: comment,
+    })
+    setEditingComment(false)
   }
 
   const handleSpotifyConnect = () => {
@@ -111,7 +136,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
 
   return (
     <div>
-      {/* Progress indicator */}
+      {/* Progress */}
       <div className="card" style={{ marginBottom: 16, background: 'var(--accent-dim)', borderColor: 'rgba(29,185,84,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span style={{ fontSize: 13, color: 'var(--accent)' }}>Eingereichte Songs</span>
@@ -136,43 +161,89 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
             <div className="track-info">
               <div className="track-name">{mySubmission.trackName}</div>
               <div className="track-artist">{mySubmission.artistName}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{mySubmission.albumName}</div>
             </div>
             <span style={{ color: 'var(--accent)', fontSize: 18 }}>✓</span>
           </div>
-          <button
-            onClick={() => setShowSearch(true)}
-            className="btn btn-ghost btn-sm"
-            disabled={submitting}
-          >
+
+          {/* Submission comment */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Dein Kommentar zu diesem Song (optional)
+            </div>
+            {editingComment ? (
+              <div>
+                <textarea
+                  value={comment}
+                  onChange={e => setComment(e.target.value)}
+                  placeholder="Warum hast du diesen Song gewählt?"
+                  rows={3}
+                  style={{ fontSize: 13, marginBottom: 8 }}
+                  autoFocus
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={handleSaveComment} className="btn btn-primary btn-sm">Speichern</button>
+                  <button onClick={() => setEditingComment(false)} className="btn btn-ghost btn-sm">Abbrechen</button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => setEditingComment(true)}
+                style={{
+                  padding: '10px 12px',
+                  background: 'var(--surface2)',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  color: mySubmission.submissionComment ? 'var(--text)' : 'var(--text-muted)',
+                  fontStyle: mySubmission.submissionComment ? 'normal' : 'italic',
+                  lineHeight: 1.5,
+                }}
+              >
+                {mySubmission.submissionComment || 'Kommentar hinzufügen…'}
+                <span style={{ float: 'right', fontSize: 11, color: 'var(--text-muted)' }}>✏️</span>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => setShowSearch(true)} className="btn btn-ghost btn-sm" disabled={submitting}>
             Song ändern
           </button>
         </div>
       ) : (
-        <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: 28 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🎵</div>
-          <h3 style={{ fontSize: 18, marginBottom: 8 }}>Reiche deinen Song ein</h3>
-          <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
-            Wähle einen Song der Kategorie „{round.prompt}" — er bleibt bis zur Abstimmung anonym.
-          </p>
+        <div className="card" style={{ marginBottom: 16 }}>
+          {/* Comment field before submission */}
+          <div style={{ marginBottom: 16 }}>
+            <label>Kommentar zu deinem Song (optional)</label>
+            <textarea
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Warum wählst du diesen Song? Wird nach der Runde sichtbar."
+              rows={2}
+              style={{ fontSize: 13 }}
+            />
+          </div>
 
-          {connected ? (
-            <button
-              onClick={() => setShowSearch(true)}
-              className="btn btn-spotify btn-lg"
-              disabled={submitting}
-            >
-              {submitting ? 'Wird eingereicht…' : '🎵 Song auf Spotify suchen'}
-            </button>
-          ) : (
-            <button onClick={handleSpotifyConnect} className="btn btn-spotify btn-lg">
-              Mit Spotify verbinden
-            </button>
-          )}
+          <div style={{ textAlign: 'center', padding: '8px 0' }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🎵</div>
+            <h3 style={{ fontSize: 18, marginBottom: 8 }}>Reiche deinen Song ein</h3>
+            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
+              Kategorie: „{round.prompt}" — bleibt bis zur Abstimmung anonym.
+            </p>
+            {connected ? (
+              <button onClick={() => setShowSearch(true)} className="btn btn-spotify btn-lg" disabled={submitting}>
+                {submitting ? 'Wird eingereicht…' : '🎵 Song auf Spotify suchen'}
+              </button>
+            ) : (
+              <button onClick={handleSpotifyConnect} className="btn btn-spotify btn-lg">
+                Mit Spotify verbinden
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Who has submitted (anonymous count) */}
+      {/* Members status */}
       <div className="card">
         <div className="section-title">Mitglieder</div>
         {group?.members?.map(uid => {
@@ -180,7 +251,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
           const name = group.memberNames?.[uid] || 'Anonym'
           return (
             <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <Avatar name={name} size={36} />
+              <Avatar name={name} uid={uid} size={32} />
               <span style={{ flex: 1, fontSize: 14 }}>{name} {uid === user.uid && '(Du)'}</span>
               {hasSubmitted
                 ? <span className="badge badge-green">✓ Eingereicht</span>
@@ -200,9 +271,9 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
 function VotingPhase({ round, group, groupId, roundId }) {
   const { user } = useAuth()
   const [submissions, setSubmissions] = useState([])
-  const [myVotes, setMyVotes] = useState({}) // submissionId -> points
-  const [myComments, setMyComments] = useState({}) // submissionId -> comment
-  const [existingVotes, setExistingVotes] = useState([]) // my existing vote docs
+  const [myVotes, setMyVotes] = useState({})
+  const [myComments, setMyComments] = useState({})
+  const [existingVotes, setExistingVotes] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -219,22 +290,13 @@ function VotingPhase({ round, group, groupId, roundId }) {
     })
   }, [roundId])
 
-  // Load existing votes
   useEffect(() => {
-    const q = query(
-      collection(db, 'votes'),
-      where('roundId', '==', roundId),
-      where('voterId', '==', user.uid)
-    )
+    const q = query(collection(db, 'votes'), where('roundId', '==', roundId), where('voterId', '==', user.uid))
     getDocs(q).then(snap => {
       const votes = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       setExistingVotes(votes)
-      const vmap = {}
-      const cmap = {}
-      votes.forEach(v => {
-        vmap[v.submissionId] = v.points
-        cmap[v.submissionId] = v.comment || ''
-      })
+      const vmap = {}, cmap = {}
+      votes.forEach(v => { vmap[v.submissionId] = v.points; cmap[v.submissionId] = v.comment || '' })
       setMyVotes(vmap)
       setMyComments(cmap)
     })
@@ -258,34 +320,28 @@ function VotingPhase({ round, group, groupId, roundId }) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      // Delete existing votes
       await Promise.all(existingVotes.map(v => deleteDoc(doc(db, 'votes', v.id))))
-
-      // Write new votes
-      const promises = Object.entries(myVotes).map(([subId, points]) => {
-        if (points <= 0) return
-        const sub = submissions.find(s => s.id === subId)
-        return addDoc(collection(db, 'votes'), {
-          roundId,
-          groupId,
-          voterId: user.uid,
-          submissionId: subId,
-          submitterUserId: sub?.userId,
-          points,
-          comment: myComments[subId] || '',
-          createdAt: serverTimestamp(),
+      const promises = Object.entries(myVotes)
+        .filter(([_, pts]) => pts > 0)
+        .map(([subId, points]) => {
+          const sub = submissions.find(s => s.id === subId)
+          return addDoc(collection(db, 'votes'), {
+            roundId, groupId,
+            voterId: user.uid,
+            submissionId: subId,
+            submitterUserId: sub?.userId,
+            points,
+            comment: myComments[subId] || '',
+            createdAt: serverTimestamp(),
+          })
         })
-      })
       await Promise.all(promises)
-
-      // Update existing votes ref
       const q = query(collection(db, 'votes'), where('roundId', '==', roundId), where('voterId', '==', user.uid))
       const snap = await getDocs(q)
       setExistingVotes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-
       setSaved(true)
     } catch (err) {
-      alert('Fehler beim Speichern: ' + err.message)
+      alert('Fehler: ' + err.message)
     } finally {
       setSaving(false)
     }
@@ -312,15 +368,12 @@ function VotingPhase({ round, group, groupId, roundId }) {
           <div className="progress-fill" style={{ width: `${(usedVotes / totalVotes) * 100}%`, background: 'var(--accent2)' }} />
         </div>
         <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-          Verteile deine {totalVotes} Stimmen auf die Songs. Du kannst mehrere Stimmen auf einen Song setzen.
+          Verteile deine {totalVotes} Stimmen. Mehrere auf einen Song möglich.
         </p>
       </div>
 
-      {/* Songs to vote on */}
       {otherSubs.length === 0 ? (
-        <div className="empty-state">
-          <p>Keine Songs zum Abstimmen.</p>
-        </div>
+        <div className="empty-state"><p>Keine Songs zum Abstimmen.</p></div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {otherSubs.map(sub => (
@@ -330,39 +383,27 @@ function VotingPhase({ round, group, groupId, roundId }) {
                 <div className="track-info">
                   <div className="track-name">{sub.trackName}</div>
                   <div className="track-artist">{sub.artistName}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{sub.albumName}</div>
                 </div>
               </div>
 
               {/* Vote controls */}
               <div className="vote-row" style={{ marginBottom: 12 }}>
                 <div className="vote-counter">
-                  <button
-                    className="vote-btn"
-                    onClick={() => removeVote(sub.id)}
-                    disabled={!myVotes[sub.id]}
-                  >−</button>
+                  <button className="vote-btn" onClick={() => removeVote(sub.id)} disabled={!myVotes[sub.id]}>−</button>
                   <span className="vote-number">{myVotes[sub.id] || 0}</span>
-                  <button
-                    className="vote-btn"
-                    onClick={() => addVote(sub.id)}
-                    disabled={remainingVotes <= 0}
-                  >+</button>
+                  <button className="vote-btn" onClick={() => addVote(sub.id)} disabled={remainingVotes <= 0}>+</button>
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                   {myVotes[sub.id] ? `${myVotes[sub.id]} Stimme${myVotes[sub.id] !== 1 ? 'n' : ''}` : 'Keine Stimmen'}
                 </span>
               </div>
 
-              {/* Comment field */}
+              {/* Vote comment */}
               <div>
                 <label>Kommentar (optional)</label>
                 <textarea
                   value={myComments[sub.id] || ''}
-                  onChange={e => {
-                    setMyComments(prev => ({ ...prev, [sub.id]: e.target.value }))
-                    setSaved(false)
-                  }}
+                  onChange={e => { setMyComments(prev => ({ ...prev, [sub.id]: e.target.value })); setSaved(false) }}
                   placeholder="Was denkst du über diesen Song?"
                   rows={2}
                   style={{ fontSize: 13 }}
@@ -373,7 +414,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
         </div>
       )}
 
-      {/* My submitted song */}
+      {/* My song during voting */}
       {mySubmission && (
         <div style={{ marginTop: 16, opacity: 0.6 }}>
           <div className="section-title">Dein eingereichteter Song</div>
@@ -384,9 +425,11 @@ function VotingPhase({ round, group, groupId, roundId }) {
               <div className="track-artist">{mySubmission.artistName}</div>
             </div>
           </div>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-            Du kannst nicht für deinen eigenen Song abstimmen.
-          </p>
+          {mySubmission.submissionComment && (
+            <p style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 8, fontStyle: 'italic' }}>
+              „{mySubmission.submissionComment}"
+            </p>
+          )}
         </div>
       )}
 
@@ -411,7 +454,6 @@ function ResultsPhase({ round, group, groupId, roundId }) {
   const [submissions, setSubmissions] = useState([])
   const [votes, setVotes] = useState([])
   const [loading, setLoading] = useState(true)
-  const [creatingPlaylist, setCreatingPlaylist] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -424,38 +466,8 @@ function ResultsPhase({ round, group, groupId, roundId }) {
     })
   }, [roundId])
 
-  const handleCreatePlaylist = async () => {
-    if (!isSpotifyConnected()) {
-      sessionStorage.setItem('spotify_return_to', window.location.pathname)
-      initiateSpotifyAuth()
-      return
-    }
-    setCreatingPlaylist(true)
-    try {
-      const spotifyUser = await getSpotifyUser()
-      const playlist = await createPlaylist(
-        spotifyUser.id,
-        `Soundleague: ${round.prompt}`,
-        `Playlist erstellt von Soundleague für die Runde "${round.prompt}"`
-      )
-      const sorted = [...submissions].sort((a, b) => {
-        const aVotes = votes.filter(v => v.submissionId === a.id).reduce((s, v) => s + v.points, 0)
-        const bVotes = votes.filter(v => v.submissionId === b.id).reduce((s, v) => s + v.points, 0)
-        return bVotes - aVotes
-      })
-      await addTracksToPlaylist(playlist.id, sorted.map(s => s.trackUri))
-      await updateDoc(doc(db, 'rounds', roundId), { playlistId: playlist.id })
-      window.open(`https://open.spotify.com/playlist/${playlist.id}`, '_blank')
-    } catch (err) {
-      alert('Fehler: ' + err.message)
-    } finally {
-      setCreatingPlaylist(false)
-    }
-  }
-
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
 
-  // Build results: submissions with total votes, sorted desc
   const results = submissions
     .map(sub => {
       const subVotes = votes.filter(v => v.submissionId === sub.id)
@@ -468,26 +480,18 @@ function ResultsPhase({ round, group, groupId, roundId }) {
     <div>
       <PlaylistButton round={round} roundId={roundId} submissions={submissions} />
 
-      {/* Results */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {results.map((sub, i) => {
           const isOwn = sub.userId === user.uid
-          const commentsForThis = sub.subVotes.filter(v => v.comment)
           return (
-            <div
-              key={sub.id}
-              className="card fade-in"
-              style={{ animationDelay: `${i * 0.08}s`, borderColor: i === 0 ? 'rgba(232,168,56,0.4)' : 'var(--border)' }}
-            >
+            <div key={sub.id} className="card fade-in" style={{ animationDelay: `${i * 0.08}s`, borderColor: i === 0 ? 'rgba(232,168,56,0.4)' : 'var(--border)' }}>
               {/* Rank + Points */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <span style={{ fontSize: 24, fontFamily: 'Fraunces' }}>
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
                 </span>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 28, fontFamily: 'Fraunces', color: 'var(--accent)', lineHeight: 1 }}>
-                    {sub.totalPoints}
-                  </div>
+                  <div style={{ fontSize: 28, fontFamily: 'Fraunces', color: 'var(--accent)', lineHeight: 1 }}>{sub.totalPoints}</div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>PUNKTE</div>
                 </div>
               </div>
@@ -502,13 +506,33 @@ function ResultsPhase({ round, group, groupId, roundId }) {
               </div>
 
               {/* Submitter */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <Avatar name={sub.userName} size={28} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: sub.submissionComment ? 8 : 12 }}>
+                <Avatar name={sub.userName} uid={sub.userId} size={28} />
                 <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
                   Eingereicht von <strong style={{ color: 'var(--text)' }}>{sub.userName}</strong>
                   {isOwn && ' (Du)'}
                 </span>
               </div>
+
+              {/* Submission comment */}
+              {sub.submissionComment && (
+                <div style={{
+                  background: 'var(--accent-dim)',
+                  border: '1px solid rgba(29,185,84,0.2)',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  marginBottom: 12,
+                  fontSize: 13,
+                  color: 'var(--text)',
+                  fontStyle: 'italic',
+                  lineHeight: 1.5,
+                }}>
+                  <span style={{ fontSize: 10, color: 'var(--accent)', fontStyle: 'normal', display: 'block', marginBottom: 2 }}>
+                    💬 KOMMENTAR VOM EINREICHER
+                  </span>
+                  „{sub.submissionComment}"
+                </div>
+              )}
 
               {/* Who voted */}
               {sub.subVotes.length > 0 && (
@@ -517,16 +541,16 @@ function ResultsPhase({ round, group, groupId, roundId }) {
                   {sub.subVotes.map(vote => {
                     const voterName = group?.memberNames?.[vote.voterId] || 'Anonym'
                     return (
-                      <div key={vote.id} style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-                        <Avatar name={voterName} size={28} />
+                      <div key={vote.id} style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                        <Avatar name={voterName} uid={vote.voterId} size={28} />
                         <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: vote.comment ? 4 : 0 }}>
                             <span style={{ fontSize: 13 }}>
                               <strong>{voterName}</strong>
                               {vote.voterId === user.uid && ' (Du)'}
                             </span>
                             <span className="badge badge-amber" style={{ fontSize: 10 }}>
-                              {'♦'.repeat(vote.points)} {vote.points}pt
+                              {'♦'.repeat(Math.min(vote.points, 5))} {vote.points}pt
                             </span>
                           </div>
                           {vote.comment && (
@@ -540,7 +564,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
                               fontStyle: 'italic',
                               lineHeight: 1.5,
                             }}>
-                              "{vote.comment}"
+                              „{vote.comment}"
                             </p>
                           )}
                         </div>
@@ -551,9 +575,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
               )}
 
               {sub.subVotes.length === 0 && (
-                <p style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  Keine Stimmen erhalten.
-                </p>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>Keine Stimmen erhalten.</p>
               )}
             </div>
           )
@@ -574,11 +596,10 @@ export default function RoundPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsubRound = onSnapshot(doc(db, 'rounds', roundId), snap => {
+    return onSnapshot(doc(db, 'rounds', roundId), snap => {
       if (snap.exists()) setRound({ id: snap.id, ...snap.data() })
       setLoading(false)
     })
-    return unsubRound
   }, [roundId])
 
   useEffect(() => {
@@ -587,7 +608,6 @@ export default function RoundPage() {
     })
   }, [groupId])
 
-  // Auto-advance if deadline passed
   useEffect(() => {
     if (!round) return
     const now = new Date()
@@ -600,15 +620,13 @@ export default function RoundPage() {
 
   const formatDeadline = (ts) => {
     if (!ts?.toDate) return ''
-    return ts.toDate().toLocaleString('de-DE', {
-      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-    })
+    return ts.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
   const statusInfo = {
     submission: { label: 'Einreichung läuft', badge: 'badge-green', deadline: round?.submissionDeadline },
-    voting: { label: 'Abstimmung läuft', badge: 'badge-amber', deadline: round?.votingDeadline },
-    results: { label: 'Runde beendet', badge: 'badge-dim', deadline: null },
+    voting:     { label: 'Abstimmung läuft',  badge: 'badge-amber', deadline: round?.votingDeadline },
+    results:    { label: 'Runde beendet',      badge: 'badge-dim',   deadline: null },
   }
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
@@ -618,23 +636,15 @@ export default function RoundPage() {
 
   return (
     <div className="page">
-      {/* Back */}
-      <button
-        onClick={() => navigate(`/group/${groupId}`)}
-        className="btn btn-ghost btn-sm"
-        style={{ marginBottom: 16 }}
-      >
+      <button onClick={() => navigate(`/group/${groupId}`)} className="btn btn-ghost btn-sm" style={{ marginBottom: 16 }}>
         ← Gruppe
       </button>
 
-      {/* Round header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span className={`badge ${info.badge}`}>{info.label}</span>
           {info.deadline && (
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              bis {formatDeadline(info.deadline)}
-            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>bis {formatDeadline(info.deadline)}</span>
           )}
         </div>
         <h1 style={{ fontSize: 32, lineHeight: 1.1 }}>{round.prompt}</h1>
@@ -643,21 +653,12 @@ export default function RoundPage() {
             {round.description}
           </p>
         )}
-        {group && (
-          <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>{group.name}</p>
-        )}
+        {group && <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>{group.name}</p>}
       </div>
 
-      {/* Phase content */}
-      {round.status === 'submission' && (
-        <SubmissionPhase round={round} group={group} groupId={groupId} roundId={roundId} />
-      )}
-      {round.status === 'voting' && (
-        <VotingPhase round={round} group={group} groupId={groupId} roundId={roundId} />
-      )}
-      {round.status === 'results' && (
-        <ResultsPhase round={round} group={group} groupId={groupId} roundId={roundId} />
-      )}
+      {round.status === 'submission' && <SubmissionPhase round={round} group={group} groupId={groupId} roundId={roundId} />}
+      {round.status === 'voting'     && <VotingPhase round={round} group={group} groupId={groupId} roundId={roundId} />}
+      {round.status === 'results'    && <ResultsPhase round={round} group={group} groupId={groupId} roundId={roundId} />}
     </div>
   )
 }

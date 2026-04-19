@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
+import { useUserEmoji } from '../hooks/useUserEmoji'
+import UserAvatar from '../components/UserAvatar'
 import {
   collection, query, where, onSnapshot,
   doc, getDoc, updateDoc, setDoc, arrayUnion,
@@ -12,15 +14,11 @@ function generateInviteCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase()
 }
 
-function Avatar({ name, size = '' }) {
-  return <div className={`avatar ${size}`}>{(name || '?')[0].toUpperCase()}</div>
-}
-
 function RoundStatusBadge({ status }) {
   const map = {
     submission: { label: 'Einreichung', cls: 'badge-green' },
-    voting: { label: 'Abstimmung', cls: 'badge-amber' },
-    results: { label: 'Ergebnisse', cls: 'badge-dim' },
+    voting:     { label: 'Abstimmung',  cls: 'badge-amber' },
+    results:    { label: 'Ergebnisse',  cls: 'badge-dim'   },
   }
   const info = map[status] || { label: status, cls: 'badge-dim' }
   return <span className={`badge ${info.cls}`}>{info.label}</span>
@@ -75,21 +73,11 @@ function CreateGroupModal({ onClose, onCreated }) {
           <form onSubmit={handleCreate}>
             <div className="form-group">
               <label>Gruppenname</label>
-              <input
-                autoFocus
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="z.B. Die Musiknerds"
-                required
-              />
+              <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="z.B. Die Musiknerds" required />
             </div>
             <div className="form-group">
               <label>Beschreibung (optional)</label>
-              <input
-                value={desc}
-                onChange={e => setDesc(e.target.value)}
-                placeholder="Worum geht's hier?"
-              />
+              <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Worum geht's hier?" />
             </div>
             <div className="form-group">
               <label>Stimmen pro Person pro Runde</label>
@@ -127,10 +115,7 @@ function JoinGroupModal({ onClose, onJoined }) {
       if (snap.empty) { setError('Ungültiger Einladungscode.'); setLoading(false); return }
       const groupDoc = snap.docs[0]
       const data = groupDoc.data()
-      if (data.members.includes(user.uid)) {
-        onJoined(groupDoc.id)
-        return
-      }
+      if (data.members.includes(user.uid)) { onJoined(groupDoc.id); return }
       await updateDoc(doc(db, 'groups', groupDoc.id), {
         members: arrayUnion(user.uid),
         [`memberNames.${user.uid}`]: user.displayName || 'Anonym',
@@ -157,8 +142,7 @@ function JoinGroupModal({ onClose, onJoined }) {
             <div className="form-group">
               <label>Einladungscode</label>
               <input
-                autoFocus
-                value={code}
+                autoFocus value={code}
                 onChange={e => setCode(e.target.value.toUpperCase())}
                 placeholder="z.B. ABC123"
                 maxLength={6}
@@ -179,10 +163,11 @@ function JoinGroupModal({ onClose, onJoined }) {
 // ─── Main Home Page ───
 export default function Home() {
   const { user } = useAuth()
+  const { emoji } = useUserEmoji()
   const navigate = useNavigate()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState(null) // 'create' | 'join'
+  const [modal, setModal] = useState(null)
   const [roundStatuses, setRoundStatuses] = useState({})
 
   useEffect(() => {
@@ -192,8 +177,6 @@ export default function Home() {
       const gs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       setGroups(gs)
       setLoading(false)
-
-      // Fetch current round statuses
       const statuses = {}
       await Promise.all(gs.map(async g => {
         if (g.currentRoundId) {
@@ -205,27 +188,26 @@ export default function Home() {
     })
   }, [user])
 
-  const handleCreated = (groupId) => {
-    setModal(null)
-    navigate(`/group/${groupId}`)
-  }
+  const handleCreated = (groupId) => { setModal(null); navigate(`/group/${groupId}`) }
+  const handleJoined  = (groupId) => { setModal(null); navigate(`/group/${groupId}`) }
 
-  const handleJoined = (groupId) => {
-    setModal(null)
-    navigate(`/group/${groupId}`)
-  }
+  const firstName = user?.displayName?.split(' ')[0] || 'Musikfan'
 
   return (
     <div className="page">
-      {/* Header */}
+      {/* Header with emoji avatar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, paddingTop: 8 }}>
         <div>
           <h1 style={{ fontSize: 28 }}>Soundleague</h1>
           <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 2 }}>
-            Hey, {user?.displayName?.split(' ')[0] || 'Musikfan'} 👋
+            Hey, {firstName} 👋
           </p>
         </div>
-        <Avatar name={user?.displayName} size="avatar-lg" />
+        {/* Large emoji avatar — tap to change */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <UserAvatar uid={user?.uid} name={user?.displayName} size={52} />
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{user?.displayName?.split(' ')[0]}</span>
+        </div>
       </div>
 
       {/* Action buttons */}
@@ -265,18 +247,23 @@ export default function Home() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <h3 style={{ fontSize: 17, fontWeight: 400 }}>{group.name}</h3>
-                  {roundStatuses[group.id] && (
-                    <RoundStatusBadge status={roundStatuses[group.id]} />
-                  )}
-                  {!group.currentRoundId && (
-                    <span className="badge badge-dim">Keine Runde</span>
-                  )}
+                  {roundStatuses[group.id] && <RoundStatusBadge status={roundStatuses[group.id]} />}
+                  {!group.currentRoundId && <span className="badge badge-dim">Keine Runde</span>}
                 </div>
                 {group.description && (
                   <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 8 }}>{group.description}</p>
                 )}
+                {/* Member emoji row */}
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+                  {group.members.slice(0, 8).map(uid => (
+                    <UserAvatar key={uid} uid={uid} name={group.memberNames?.[uid]} size={24} />
+                  ))}
+                  {group.members.length > 8 && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{group.members.length - 8}</span>
+                  )}
+                </div>
                 <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {group.members.length} {group.members.length === 1 ? 'Mitglied' : 'Mitglieder'} · {group.votesPerMember} {group.votesPerMember === 1 ? 'Stimme' : 'Stimmen'}/Runde
+                  {group.members.length} {group.members.length === 1 ? 'Mitglied' : 'Mitglieder'} · {group.votesPerMember} Stimmen/Runde
                 </p>
               </div>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 4 }}>
@@ -287,12 +274,8 @@ export default function Home() {
         ))}
       </div>
 
-      {modal === 'create' && (
-        <CreateGroupModal onClose={() => setModal(null)} onCreated={handleCreated} />
-      )}
-      {modal === 'join' && (
-        <JoinGroupModal onClose={() => setModal(null)} onJoined={handleJoined} />
-      )}
+      {modal === 'create' && <CreateGroupModal onClose={() => setModal(null)} onCreated={handleCreated} />}
+      {modal === 'join'   && <JoinGroupModal   onClose={() => setModal(null)} onJoined={handleJoined} />}
     </div>
   )
 }

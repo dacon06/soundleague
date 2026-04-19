@@ -43,6 +43,8 @@ export async function initiateSpotifyAuth() {
 
 export async function exchangeCodeForToken(code) {
   const codeVerifier = localStorage.getItem('spotify_code_verifier')
+  if (!codeVerifier) throw new Error('Code verifier fehlt — bitte erneut einloggen')
+
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -108,7 +110,7 @@ export function disconnectSpotify() {
   localStorage.removeItem('spotify_code_verifier')
 }
 
-// --- API calls --- only add Content-Type for non-GET requests
+// --- API calls --- only Content-Type for non-GET requests
 async function spotifyFetch(endpoint, options = {}) {
   const token = await getSpotifyToken()
   if (!token) throw new Error('Nicht mit Spotify verbunden')
@@ -135,6 +137,7 @@ async function spotifyFetch(endpoint, options = {}) {
 }
 
 export async function searchTracks(query) {
+  if (query.trim().length < 3) return []
   const data = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track&limit=10&market=from_token`)
   return data.tracks.items
 }
@@ -144,15 +147,31 @@ export async function getSpotifyUser() {
 }
 
 export async function createPlaylist(userId, name, description) {
+  // Try /me/playlists first (more reliable)
   return spotifyFetch(`/me/playlists`, {
     method: 'POST',
-    body: JSON.stringify({ name, description, public: true }),
+    body: JSON.stringify({ name, description, public: false }),
   })
 }
 
 export async function addTracksToPlaylist(playlistId, trackUris) {
-  return spotifyFetch(`/playlists/${playlistId}/tracks`, {
-    method: 'POST',
-    body: JSON.stringify({ uris: trackUris }),
+  // Split into batches of 100 (Spotify limit)
+  const batches = []
+  for (let i = 0; i < trackUris.length; i += 100) {
+    batches.push(trackUris.slice(i, i + 100))
+  }
+  for (const batch of batches) {
+    await spotifyFetch(`/playlists/${playlistId}/tracks`, {
+      method: 'POST',
+      body: JSON.stringify({ uris: batch }),
+    })
+  }
+}
+
+// Make playlist public after creation
+export async function makePlaylistPublic(playlistId) {
+  return spotifyFetch(`/playlists/${playlistId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ public: true }),
   })
 }

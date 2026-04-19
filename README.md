@@ -43,3 +43,4 @@ npm install && npm run dev
 5. Netlify-URL in Spotify Dashboard als Redirect URI eintragen
 # force rebuild
 # updated
+

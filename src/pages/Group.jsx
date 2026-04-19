@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
-import Avatar from '../components/Avatar'
+import UserAvatar from '../components/UserAvatar'
 import Chat from '../components/Chat'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
@@ -387,7 +387,7 @@ export default function GroupPage() {
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
         {group.members.map(uid => (
           <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <Avatar name={group.memberNames?.[uid] || 'Anonym'} uid={uid} size={44} />
+            <UserAvatar name={group.memberNames?.[uid] || 'Anonym'} uid={uid} size={44} />
             <span style={{ fontSize: 10, color: uid === user.uid ? 'var(--accent)' : 'var(--text-dim)', maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {uid === user.uid ? 'Du' : (group.memberNames?.[uid] || 'Anonym').split(' ')[0]}
             </span>
@@ -517,7 +517,7 @@ export default function GroupPage() {
             leaderboard.map((entry, i) => (
               <div key={entry.uid} className="leaderboard-row">
                 <div className={`leaderboard-rank ${i < 3 ? 'top' : ''}`}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</div>
-                <Avatar name={entry.name} uid={entry.uid} size={36} />
+                <UserAvatar name={entry.name} uid={entry.uid} size={36} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: entry.uid === user.uid ? 700 : 400 }}>{entry.name} {entry.uid === user.uid && '(Du)'}</div>
                 </div>

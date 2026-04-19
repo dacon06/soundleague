@@ -1,37 +1,49 @@
-// Illustrated avatars from DiceBear — consistent per user name/id
-// Docs: https://www.dicebear.com/styles/adventurer
+// Avatar component - shows user's chosen emoji or initial letter as fallback
+export default function Avatar({ name, uid, emoji, size = 36 }) {
+  if (emoji) {
+    return (
+      <div style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: 'var(--surface2)',
+        border: '2px solid var(--border)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: size * 0.52,
+        flexShrink: 0,
+        userSelect: 'none',
+      }}>
+        {emoji}
+      </div>
+    )
+  }
 
-export default function Avatar({ name, uid, size = 36 }) {
-  const seed = encodeURIComponent(uid || name || 'unknown')
-  const url = `https://api.dicebear.com/9.x/adventurer/svg?seed=${seed}&backgroundColor=1DB954,E8A838,7C3AED,2563EB,DC2626&backgroundType=solid`
+  // Fallback: initial letter
+  const initial = (name || '?')[0].toUpperCase()
+  const colors = ['#1DB954', '#E8A838', '#7C3AED', '#2563EB', '#DC2626', '#059669', '#D97706']
+  const colorIndex = (name || '?').charCodeAt(0) % colors.length
+  const bg = colors[colorIndex]
 
   return (
     <div style={{
       width: size,
       height: size,
       borderRadius: '50%',
-      overflow: 'hidden',
-      flexShrink: 0,
-      background: 'var(--surface2)',
-      border: '2px solid var(--border)',
+      background: bg,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      fontSize: size * 0.4,
+      fontWeight: 700,
+      color: '#000',
+      fontFamily: 'Fraunces, serif',
+      flexShrink: 0,
+      userSelect: 'none',
+      border: '2px solid rgba(0,0,0,0.1)',
     }}>
-      <img
-        src={url}
-        alt={name || 'Avatar'}
-        width={size}
-        height={size}
-        style={{ display: 'block' }}
-        loading="lazy"
-        onError={e => {
-          // Fallback to initial letter if DiceBear fails
-          e.target.style.display = 'none'
-          e.target.parentNode.style.background = 'linear-gradient(135deg, var(--accent), var(--accent2))'
-          e.target.parentNode.innerHTML = `<span style="font-size:${Math.round(size * 0.4)}px;font-family:Fraunces,serif;font-weight:600;color:#000">${(name||'?')[0].toUpperCase()}</span>`
-        }}
-      />
+      {initial}
     </div>
   )
 }

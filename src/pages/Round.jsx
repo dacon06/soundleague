@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import SpotifySearch from '../components/SpotifySearch'
-import Avatar from '../components/Avatar'
+import UserAvatar from '../components/UserAvatar'
 import { isSpotifyConnected, initiateSpotifyAuth, getSpotifyUser, createPlaylist, addTracksToPlaylist } from '../spotify'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
@@ -251,7 +251,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
           const name = group.memberNames?.[uid] || 'Anonym'
           return (
             <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-              <Avatar name={name} uid={uid} size={32} />
+              <UserAvatar name={name} uid={uid} size={32} />
               <span style={{ flex: 1, fontSize: 14 }}>{name} {uid === user.uid && '(Du)'}</span>
               {hasSubmitted
                 ? <span className="badge badge-green">✓ Eingereicht</span>
@@ -507,7 +507,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
 
               {/* Submitter */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: sub.submissionComment ? 8 : 12 }}>
-                <Avatar name={sub.userName} uid={sub.userId} size={28} />
+                <UserAvatar name={sub.userName} uid={sub.userId} size={28} />
                 <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
                   Eingereicht von <strong style={{ color: 'var(--text)' }}>{sub.userName}</strong>
                   {isOwn && ' (Du)'}
@@ -542,7 +542,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
                     const voterName = group?.memberNames?.[vote.voterId] || 'Anonym'
                     return (
                       <div key={vote.id} style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                        <Avatar name={voterName} uid={vote.voterId} size={28} />
+                        <UserAvatar name={voterName} uid={vote.voterId} size={28} />
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: vote.comment ? 4 : 0 }}>
                             <span style={{ fontSize: 13 }}>

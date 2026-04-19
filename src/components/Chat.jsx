@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import Avatar from './Avatar'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
+import UserAvatar from './UserAvatar'
 import {
   collection, query, orderBy, limit, onSnapshot,
   addDoc, serverTimestamp
 } from 'firebase/firestore'
-
 
 export default function Chat({ groupId }) {
   const { user } = useAuth()
@@ -49,8 +48,7 @@ export default function Chat({ groupId }) {
 
   const formatTime = (ts) => {
     if (!ts?.toDate) return ''
-    const d = ts.toDate()
-    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    return ts.toDate().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
   }
 
   return (
@@ -65,7 +63,7 @@ export default function Chat({ groupId }) {
           const isOwn = msg.userId === user.uid
           return (
             <div key={msg.id} className={`chat-msg ${isOwn ? 'chat-msg-own' : ''}`}>
-              {!isOwn && <Avatar name={msg.userName} size={28} />}
+              {!isOwn && <UserAvatar uid={msg.userId} name={msg.userName} size={28} />}
               <div style={{ maxWidth: '75%' }}>
                 {!isOwn && (
                   <div className="chat-name">
@@ -79,7 +77,7 @@ export default function Chat({ groupId }) {
                   </div>
                 )}
               </div>
-              {isOwn && <Avatar name={msg.userName} size={28} />}
+              {isOwn && <UserAvatar uid={msg.userId} name={msg.userName} size={28} />}
             </div>
           )
         })}

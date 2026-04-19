@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore'
+import { doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore'
 
-// Cache emojis in memory to avoid repeated Firestore reads
 const emojiCache = {}
 
 export function useUserEmoji() {
@@ -12,8 +11,7 @@ export function useUserEmoji() {
 
   useEffect(() => {
     if (!user) return
-    if (emojiCache[user.uid]) { setEmoji(emojiCache[user.uid]); return }
-
+    if (emojiCache[user.uid] !== undefined) { setEmoji(emojiCache[user.uid]); return }
     return onSnapshot(doc(db, 'users', user.uid), snap => {
       const e = snap.data()?.emoji || null
       emojiCache[user.uid] = e
@@ -25,25 +23,27 @@ export function useUserEmoji() {
     if (!user) return
     emojiCache[user.uid] = newEmoji
     setEmoji(newEmoji)
-    await updateDoc(doc(db, 'users', user.uid), { emoji: newEmoji })
+    // setDoc with merge creates the document if it doesn't exist
+    await setDoc(doc(db, 'users', user.uid), { emoji: newEmoji }, { merge: true })
   }
 
   return { emoji, updateEmoji }
 }
 
-// Fetch emoji for any user (for displaying other people's avatars)
 export async function getUserEmoji(uid) {
   if (emojiCache[uid] !== undefined) return emojiCache[uid]
-  const snap = await getDoc(doc(db, 'users', uid))
-  const e = snap.data()?.emoji || null
-  emojiCache[uid] = e
-  return e
+  try {
+    const snap = await getDoc(doc(db, 'users', uid))
+    const e = snap.data()?.emoji || null
+    emojiCache[uid] = e
+    return e
+  } catch {
+    return null
+  }
 }
 
-// Hook to get emojis for multiple users at once
 export function useGroupEmojis(memberUids) {
   const [emojis, setEmojis] = useState({})
-
   useEffect(() => {
     if (!memberUids?.length) return
     const fetchAll = async () => {
@@ -55,6 +55,5 @@ export function useGroupEmojis(memberUids) {
     }
     fetchAll()
   }, [memberUids?.join(',')])
-
   return emojis
 }

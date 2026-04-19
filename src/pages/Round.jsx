@@ -22,17 +22,24 @@ function PlaylistButton({ round, roundId, submissions }) {
     }
     setCreating(true)
     try {
-      const spotifyUser = await getSpotifyUser()
+      // Step 1: Create playlist
       const playlist = await createPlaylist(
-        spotifyUser.id,
+        null,
         `Soundleague: ${round.prompt}`,
         `Playlist für die Runde "${round.prompt}"`
       )
-      await addTracksToPlaylist(playlist.id, submissions.map(s => s.trackUri))
+      // Step 2: Save playlist ID immediately
       await updateDoc(doc(db, 'rounds', roundId), { playlistId: playlist.id })
+      // Step 3: Add tracks (may fail silently on Development Mode)
+      try {
+        await addTracksToPlaylist(playlist.id, submissions.map(s => s.trackUri))
+      } catch (trackErr) {
+        console.warn('Tracks konnten nicht hinzugefügt werden:', trackErr.message)
+        // Still open the playlist even if tracks failed
+      }
       window.open(`https://open.spotify.com/playlist/${playlist.id}`, '_blank')
     } catch (err) {
-      alert('Fehler: ' + err.message)
+      alert('Fehler beim Erstellen der Playlist: ' + err.message)
     } finally {
       setCreating(false)
     }

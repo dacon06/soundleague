@@ -5,7 +5,6 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import GroupPage from './pages/Group'
 import RoundPage from './pages/Round'
-import SpotifyCallback from './pages/SpotifyCallback'
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth()
@@ -17,7 +16,6 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/spotify/callback" element={<SpotifyCallback />} />
       <Route element={<Layout />}>
         <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
         <Route path="/group/:groupId" element={<ProtectedRoute><GroupPage /></ProtectedRoute>} />

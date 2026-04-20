@@ -249,14 +249,31 @@ function NotificationBanner() {
   const { supported, permission, subscribe } = usePushNotifications()
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [localPerm, setLocalPerm] = useState(() => {
+    try { return Notification.permission } catch { return 'unsupported' }
+  })
 
-  if (!supported || permission === 'granted') return null
+  const notifAvailable = typeof Notification !== 'undefined'
+
+  if (!notifAvailable) return null
+  if (localPerm === 'granted' && !success) return null
 
   const handleEnable = async () => {
     setLoading(true)
-    const ok = await subscribe()
+    try {
+      // Try push notifications first if supported
+      if (supported) {
+        const ok = await subscribe()
+        if (ok) { setSuccess(true); setLocalPerm('granted'); setLoading(false); return }
+      }
+      // Fallback: just request browser notification permission
+      const perm = await Notification.requestPermission()
+      setLocalPerm(perm)
+      if (perm === 'granted') setSuccess(true)
+    } catch (err) {
+      console.error(err)
+    }
     setLoading(false)
-    if (ok) setSuccess(true)
   }
 
   if (success) return (
@@ -265,7 +282,7 @@ function NotificationBanner() {
     </div>
   )
 
-  if (permission === 'denied') return (
+  if (localPerm === 'denied') return (
     <div style={{ background: 'rgba(240,96,96,0.08)', border: '1px solid rgba(240,96,96,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)' }}>
       🔕 Benachrichtigungen blockiert — in den Browsereinstellungen erlauben
     </div>

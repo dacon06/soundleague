@@ -20,8 +20,27 @@ export default function Chat({ groupId }) {
       orderBy('createdAt', 'asc'),
       limit(100)
     )
+    let isFirst = true
     return onSnapshot(q, snap => {
-      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      
+      // Show push notification for new messages from others
+      if (!isFirst && Notification.permission === 'granted') {
+        const prev = msgs.slice(0, -1)
+        const newest = msgs[msgs.length - 1]
+        if (newest && newest.userId !== user.uid) {
+          // Only notify if page is not focused
+          if (document.hidden || document.visibilityState === 'hidden') {
+            new Notification(`${newest.userName} in Soundleague`, {
+              body: newest.text,
+              icon: '/icon-192.png',
+              tag: 'chat-' + newest.id,
+            })
+          }
+        }
+      }
+      isFirst = false
+      setMessages(msgs)
     })
   }, [groupId])
 

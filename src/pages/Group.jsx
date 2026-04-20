@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -315,6 +315,8 @@ export default function GroupPage() {
   const [tab, setTab] = useState('runden')
   const [modal, setModal] = useState(null)
   const [leaderboard, setLeaderboard] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const lastSeenRef = useRef(localStorage.getItem(`chat_seen_${groupId}`) || '0')
 
   useEffect(() => {
     return onSnapshot(doc(db, 'groups', groupId), snap => {
@@ -327,6 +329,37 @@ export default function GroupPage() {
     const q = query(collection(db, 'rounds'), where('groupId', '==', groupId), orderBy('createdAt', 'desc'))
     return onSnapshot(q, snap => setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [groupId])
+
+  // Track unread chat messages
+  useEffect(() => {
+    if (tab === 'chat') {
+      // Mark as seen when chat tab is open
+      const now = Date.now().toString()
+      localStorage.setItem(`chat_seen_${groupId}`, now)
+      lastSeenRef.current = now
+      setUnreadCount(0)
+      return
+    }
+    const lastSeen = Number(lastSeenRef.current || '0')
+    const q = query(
+      collection(db, 'groups', groupId, 'messages'),
+      orderBy('createdAt', 'desc'),
+      where('createdAt', '>', new Date(lastSeen))
+    )
+    // Use onSnapshot to count new messages
+    const unsub = onSnapshot(
+      collection(db, 'groups', groupId, 'messages'),
+      snap => {
+        const lastSeen = Number(localStorage.getItem(`chat_seen_${groupId}`) || '0')
+        const unread = snap.docs.filter(d => {
+          const ts = d.data().createdAt?.toMillis?.() || 0
+          return ts > lastSeen && d.data().userId !== user.uid
+        }).length
+        setUnreadCount(unread)
+      }
+    )
+    return unsub
+  }, [groupId, tab, user.uid])
 
   // Auto-advance + auto-start next
   useEffect(() => {
@@ -538,8 +571,22 @@ export default function GroupPage() {
           { key: 'bestenliste',   label: '🏆 Punkte' },
           { key: 'chat',          label: '💬 Chat' },
         ].map(t => (
-          <button key={t.key} className={`tab-btn ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+          <button key={t.key} className={`tab-btn ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)} style={{ position: 'relative' }}>
             {t.label}
+            {t.key === 'chat' && unreadCount > 0 && tab !== 'chat' && (
+              <span style={{
+                position: 'absolute', top: 4, right: 4,
+                background: 'var(--danger)',
+                color: '#fff',
+                borderRadius: '50%',
+                width: 16, height: 16,
+                fontSize: 10, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1,
+              }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
         ))}
       </div>

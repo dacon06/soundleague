@@ -1,31 +1,26 @@
-const CACHE = 'soundleague-v1'
+// Service Worker - PWA + Push Notifications
 
-self.addEventListener('install', e => {
-  self.skipWaiting()
-})
+self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('activate', e => e.waitUntil(clients.claim()))
 
-self.addEventListener('activate', e => {
-  e.waitUntil(clients.claim())
-})
-
+// Only handle navigation requests for offline fallback
 self.addEventListener('fetch', e => {
-  // Only cache same-origin requests
-  if (!e.request.url.startsWith(self.location.origin)) return
+  // Skip non-GET and cross-origin requests completely
   if (e.request.method !== 'GET') return
-
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
-  )
+  if (!e.request.url.startsWith(self.location.origin)) return
+  // Let the browser handle everything normally - no caching
+  // This prevents the "Failed to convert value to Response" error
 })
 
-// Push notifications (existing functionality)
+// Push notifications
 self.addEventListener('push', (event) => {
   if (!event.data) return
   const data = event.data.json()
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: '/icon-192.svg',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
       tag: data.tag || 'soundleague',
       data: { url: data.url || '/' },
     })

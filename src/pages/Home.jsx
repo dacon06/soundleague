@@ -246,7 +246,7 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <h3 style={{ fontSize: 17, fontWeight: 400 }}>{group.name}</h3>
+                  <h3 style={{ fontSize: 17, fontWeight: 600, color: '#F5F4FF' }}>{group.name}</h3>
                   {roundStatuses[group.id] && <RoundStatusBadge status={roundStatuses[group.id]} />}
                   {!group.currentRoundId && <span className="badge badge-dim">Keine Runde</span>}
                 </div>

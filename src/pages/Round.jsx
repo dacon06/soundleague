@@ -179,7 +179,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
         })}
       </div>
 
-      {showSearch && <SongSearch onSelect={handleSelect} onClose={() => setShowSearch(false)} />}
+      {showSearch && <SongSearch onSelect={handleSelect} onClose={() => setShowSearch(false)} groupId={groupId} />}
     </div>
   )
 }
@@ -288,11 +288,15 @@ function VotingPhase({ round, group, groupId, roundId }) {
       </div>
 
       {mySubmission && (
-        <div style={{ marginTop: 16, opacity: 0.6 }}>
-          <div className="section-title">Dein Song</div>
-          <div style={{ display: 'flex', gap: 12, background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: 12 }}>
-            {mySubmission.thumbnail && <img src={mySubmission.thumbnail} alt="" style={{ width: 60, height: 45, borderRadius: 6, objectFit: 'cover' }} />}
-            <div><div style={{ fontSize: 14, fontWeight: 700 }}>{mySubmission.songTitle}</div><div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{mySubmission.channelTitle}</div></div>
+        <div style={{ marginTop: 20 }}>
+          <div className="section-title">Dein eingereichter Song</div>
+          <div className="card" style={{ borderColor: 'rgba(124,106,245,0.3)', background: 'rgba(124,106,245,0.06)' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F4FF', marginBottom: 2 }}>{mySubmission.songTitle}</div>
+            <div style={{ fontSize: 12, color: '#7A7A9A', marginBottom: 10 }}>{mySubmission.channelTitle}</div>
+            <YouTubePlayer videoId={mySubmission.videoId} title={mySubmission.songTitle} />
+            {mySubmission.submissionComment && (
+              <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 10, fontStyle: 'italic' }}>„{mySubmission.submissionComment}"</p>
+            )}
           </div>
         </div>
       )}

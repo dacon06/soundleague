@@ -368,7 +368,18 @@ export default function GroupPage() {
             📨 Einladen
           </button>
           {!isAdmin && (
-            <button onClick={handleLeave} className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }}>
+            <button onClick={handleLeave} style={{
+              background: 'rgba(240,96,96,0.12)',
+              border: '1px solid rgba(240,96,96,0.3)',
+              borderRadius: 'var(--radius)',
+              color: 'var(--danger)',
+              padding: '7px 12px',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+              flexShrink: 0,
+            }}>
               🚪 Verlassen
             </button>
           )}

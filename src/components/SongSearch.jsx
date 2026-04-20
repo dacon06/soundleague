@@ -96,8 +96,8 @@ export default function SongSearch({ onSelect, onClose }) {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: 12,
-                    background: isSelected ? 'var(--accent-dim)' : 'var(--surface2)',
-                    border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
+                    background: isSelected ? 'var(--accent-dim)' : 'var(--surface3)',
+                    border: isSelected ? '2px solid var(--accent)' : '1px solid var(--border2)',
                     borderRadius: 'var(--radius)',
                     padding: '10px 14px',
                     cursor: 'pointer',
@@ -107,10 +107,10 @@ export default function SongSearch({ onSelect, onClose }) {
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {cleanTitle}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: '#7A7A9A', marginTop: 3 }}>
                       {song.channelTitle}
                     </div>
                   </div>
@@ -128,7 +128,7 @@ export default function SongSearch({ onSelect, onClose }) {
                 borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14,
               }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{parseTitle(selected.title, selected.channelTitle)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{selected.channelTitle}</div>
+                <div style={{ fontSize: 12, color: '#7A7A9A', marginTop: 3 }}>{selected.channelTitle}</div>
               </div>
               <button onClick={() => onSelect(selected)} className="btn btn-primary btn-full">
                 Song einreichen

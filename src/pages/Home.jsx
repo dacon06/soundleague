@@ -241,7 +241,7 @@ export default function Home() {
             key={group.id}
             onClick={() => navigate(`/group/${group.id}`)}
             className="card card-hover"
-            style={{ border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+            style={{ border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%', borderLeft: '3px solid var(--border2)' }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>

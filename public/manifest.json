@@ -4,7 +4,7 @@
   "description": "Musik teilen. Abstimmen. Gewinnen.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090C",
+  "background_color": "#1a1a2e",
   "theme_color": "#09090C",
   "orientation": "portrait",
   "icons": [
@@ -18,7 +18,13 @@
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

@@ -409,6 +409,21 @@ export default function GroupPage() {
     else if (round.status === 'voting') { await updateDoc(doc(db, 'rounds', round.id), { status: 'results' }); await autoStartNext(round) }
   }
 
+  const handleDeleteRound = async (roundId) => {
+    if (!window.confirm('Diese Runde und alle Songs & Abstimmungen dazu löschen?')) return
+    try {
+      const batch = writeBatch(db)
+      const subsSnap = await getDocs(fsQuery(collection(db, 'submissions'), where('roundId', '==', roundId)))
+      subsSnap.docs.forEach(d => batch.delete(d.ref))
+      const votesSnap = await getDocs(fsQuery(collection(db, 'votes'), where('roundId', '==', roundId)))
+      votesSnap.docs.forEach(d => batch.delete(d.ref))
+      batch.delete(doc(db, 'rounds', roundId))
+      await batch.commit()
+    } catch (err) {
+      alert('Fehler: ' + err.message)
+    }
+  }
+
   const handleDelete = async () => {
     if (!window.confirm('Gruppe wirklich löschen? Alle Runden, Songs und Abstimmungen werden unwiderruflich gelöscht.')) return
     if (!window.confirm('Bist du sicher? Das kann nicht rückgängig gemacht werden.')) return
@@ -563,6 +578,9 @@ export default function GroupPage() {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9,18 15,12 9,6"/></svg>
                     {isAdmin && round.status !== 'results' && (
                       <button onClick={e => { e.stopPropagation(); handleSkip(round) }} className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '4px 8px' }}>⏭ Skip</button>
+                    )}
+                    {isAdmin && round.status === 'results' && (
+                      <button onClick={e => { e.stopPropagation(); handleDeleteRound(round.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 16, padding: '4px', opacity: 0.7 }} title="Runde löschen">🗑</button>
                     )}
                   </div>
                 </div>

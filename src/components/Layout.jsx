@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useUserEmoji } from '../hooks/useUserEmoji'
 import EmojiPickerModal from './EmojiPicker'
+import InstallBanner from './InstallBanner'
 
 export default function Layout() {
   const { user, logout } = useAuth()
@@ -64,6 +65,8 @@ export default function Layout() {
           Logout
         </button>
       </nav>
+
+      <InstallBanner />
 
       {showEmojiPicker && (
         <EmojiPickerModal

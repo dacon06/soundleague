@@ -247,11 +247,10 @@ function InviteModal({ code, onClose }) {
 // ─── Notification Banner ───
 function NotificationBanner() {
   const { supported, permission, subscribe } = usePushNotifications()
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem('notif_dismissed') === '1')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
-  if (!supported || permission === 'granted' || permission === 'denied' || dismissed) return null
+  if (!supported || permission === 'granted') return null
 
   const handleEnable = async () => {
     setLoading(true)
@@ -261,22 +260,27 @@ function NotificationBanner() {
   }
 
   if (success) return (
-    <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--accent)' }}>
+    <div style={{ background: 'rgba(72,213,151,0.1)', border: '1px solid rgba(72,213,151,0.25)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--success)' }}>
       ✓ Benachrichtigungen aktiviert!
     </div>
   )
 
+  if (permission === 'denied') return (
+    <div style={{ background: 'rgba(240,96,96,0.08)', border: '1px solid rgba(240,96,96,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)' }}>
+      🔕 Benachrichtigungen blockiert — in den Browsereinstellungen erlauben
+    </div>
+  )
+
   return (
-    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16 }}>
+    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>🔔 Benachrichtigungen</div>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Erinnerung 24h vor Ende der Einreichung & Abstimmung.</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF', marginBottom: 2 }}>🔔 Benachrichtigungen aktivieren</div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>Erinnerung 24h vor Ende der Einreichung & Abstimmung</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button onClick={() => { localStorage.setItem('notif_dismissed', '1'); setDismissed(true) }} className="btn btn-ghost btn-sm">Nein</button>
-          <button onClick={handleEnable} className="btn btn-primary btn-sm" disabled={loading}>{loading ? '…' : 'Ja'}</button>
-        </div>
+        <button onClick={handleEnable} className="btn btn-primary btn-sm" disabled={loading} style={{ flexShrink: 0 }}>
+          {loading ? '…' : 'Aktivieren'}
+        </button>
       </div>
     </div>
   )

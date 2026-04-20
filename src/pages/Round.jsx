@@ -264,9 +264,8 @@ function VotingPhase({ round, group, groupId, roundId }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {otherSubs.map(sub => (
           <div key={sub.id} className="card">
-            <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-              {sub.thumbnail && <img src={sub.thumbnail} alt="" style={{ width: 80, height: 60, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
-              <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ marginBottom: 10 }}>
+              <div>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{sub.songTitle}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{sub.channelTitle}</div>
               </div>

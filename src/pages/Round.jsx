@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import SongSearch from '../components/SongSearch'
-import YouTubePlayer from '../components/YouTubePlayer'
 import UserAvatar from '../components/UserAvatar'
+import YouTubePlayer from '../components/YouTubePlayer'
 import { createYouTubePlaylistUrl } from '../youtube'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
@@ -270,7 +270,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{sub.channelTitle}</div>
               </div>
             </div>
-            <YouTubePlayer videoId={sub.videoId} title={sub.songTitle} compact={true} />
+            <YouTubePlayer videoId={sub.videoId} title={sub.songTitle} />
             <div className="vote-row" style={{ margin: '12px 0' }}>
               <div className="vote-counter">
                 <button className="vote-btn" onClick={() => removeVote(sub.id)} disabled={!myVotes[sub.id]}>−</button>
@@ -346,7 +346,7 @@ function ResultsPhase({ round, group, groupId, roundId }) {
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{sub.channelTitle}</div>
               </div>
             </div>
-            <YouTubePlayer videoId={sub.videoId} title={sub.songTitle} compact={true} />
+            <YouTubePlayer videoId={sub.videoId} title={sub.songTitle} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
               <UserAvatar uid={sub.userId} name={sub.userName} size={28} />
               <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>von <strong style={{ color: 'var(--text)' }}>{sub.userName}</strong>{sub.userId === user.uid && ' (Du)'}</span>

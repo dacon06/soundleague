@@ -8,7 +8,8 @@ import Chat from '../components/Chat'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   orderBy, addDoc, updateDoc, serverTimestamp, getDocs,
-  arrayRemove, deleteField,
+  arrayRemove, deleteField, deleteDoc, writeBatch,
+  query as fsQuery,
 } from 'firebase/firestore'
 
 function StatusBadge({ status }) {
@@ -27,8 +28,7 @@ function toItem(raw) {
 }
 
 // ─── Queue Modal ───
-function QueueModal({ group, onClose, onStarted }) {
-  const { user } = useAuth()
+function QueueModal({ group, onClose, onStarted, currentUserId }) {
   const fileRef = useRef()
   const [items, setItems] = useState(() => (group.categoryQueue || []).map(toItem))
   const [saving, setSaving] = useState(false)
@@ -52,7 +52,7 @@ function QueueModal({ group, onClose, onStarted }) {
               ? { name: item, description: '' }
               : { name: item.name || item.kategorie || '', description: item.description || item.beschreibung || '' }
           ).filter(i => i.name)
-          setItems(newItems)
+          setItems(prev => [...prev, ...newItems])
           setImportCount(newItems.length)
           return
         }
@@ -62,7 +62,7 @@ function QueueModal({ group, onClose, onStarted }) {
           const parts = line.split(sep).map(p => p.trim().replace(/^["']|["']$/g, ''))
           return { name: parts[0] || '', description: parts[1] || '' }
         }).filter(i => i.name)
-        setItems(newItems)
+        setItems(prev => [...prev, ...newItems])
         setImportCount(newItems.length)
       } catch (err) {
         setImportError('Fehler: ' + err.message)
@@ -73,6 +73,24 @@ function QueueModal({ group, onClose, onStarted }) {
   }
 
   const removeItem = (i) => setItems(prev => prev.filter((_, idx) => idx !== i))
+
+  const moveUp = (i) => {
+    if (i === 0) return
+    setItems(prev => {
+      const arr = [...prev]
+      ;[arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]
+      return arr
+    })
+  }
+
+  const moveDown = (i) => {
+    setItems(prev => {
+      if (i >= prev.length - 1) return prev
+      const arr = [...prev]
+      ;[arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]
+      return arr
+    })
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -99,7 +117,7 @@ function QueueModal({ group, onClose, onStarted }) {
         submissionDeadline: new Date(now + 120 * 3600_000),
         votingDeadline:     new Date(now + 168 * 3600_000),
         playlistId: null,
-        createdBy: user.uid,
+        createdBy: currentUserId,
         createdAt: serverTimestamp(),
         submissionNotificationSent: false,
         votingNotificationSent: false,
@@ -123,57 +141,86 @@ function QueueModal({ group, onClose, onStarted }) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: '95dvh' }}>
         <div className="modal-handle" />
         <div className="modal-header">
-          <h3 style={{ fontSize: 22 }}>Warteschlange importieren</h3>
+          <h3 style={{ fontSize: 22, color: '#F5F4FF' }}>Warteschlange bearbeiten</h3>
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-          <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-            <strong style={{ color: 'var(--text)' }}>CSV Format</strong>:<br />
-            <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Ein Song den du heimlich liebst</code><br />
-            <strong style={{ color: 'var(--text)' }}>JSON Format</strong>:<br />
-            <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
+          {/* Format hint */}
+          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+            <strong style={{ color: 'var(--text)' }}>CSV:</strong> <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Beschreibung</code><br />
+            <strong style={{ color: 'var(--text)' }}>JSON:</strong> <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
           </div>
 
-          <button onClick={() => fileRef.current.click()} className="btn btn-primary btn-full btn-lg" style={{ marginBottom: 12 }}>
+          <button onClick={() => fileRef.current.click()} className="btn btn-primary btn-full" style={{ marginBottom: 10 }}>
             📁 CSV oder JSON importieren
           </button>
           <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
 
           {importError && <div className="error-msg">{importError}</div>}
           {importCount !== null && (
-            <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 12, fontSize: 13, color: 'var(--accent)' }}>
-              ✓ {importCount} Kategorien importiert
+            <div style={{ background: 'rgba(72,213,151,0.1)', border: '1px solid rgba(72,213,151,0.25)', borderRadius: 'var(--radius)', padding: '8px 14px', marginBottom: 10, fontSize: 13, color: 'var(--success)' }}>
+              ✓ {importCount} Kategorien hinzugefügt
             </div>
           )}
 
-          {items.length > 0 && (
+          {/* Item list */}
+          {items.length > 0 ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div className="section-title" style={{ margin: 0 }}>Vorschau</div>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{items.length} · ~{items.length * 7} Tage</span>
+                <div className="section-title" style={{ margin: 0 }}>
+                  {items.length} Kategorien · ~{items.length * 7} Tage
+                </div>
+                <button
+                  onClick={() => { if (window.confirm('Alle Kategorien entfernen?')) setItems([]) }}
+                  style={{ fontSize: 12, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  Alle löschen
+                </button>
               </div>
-              <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+
+              <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 16 }}>
                 {items.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface2)', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border)' }}>
-                    <span style={{ fontFamily: 'Fraunces', fontSize: 16, color: 'var(--text-muted)', width: 24, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    background: 'var(--surface3)', borderRadius: 8,
+                    padding: '8px 10px', border: '1px solid var(--border2)',
+                  }}>
+                    {/* Position number */}
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)', width: 22, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
+
+                    {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                      {item.description && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>{item.description}</div>}
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                      {item.description && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.description}</div>}
                     </div>
-                    <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, padding: 4, flexShrink: 0 }}>✕</button>
+
+                    {/* Move up/down */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                      <button onClick={() => moveUp(i)} disabled={i === 0} style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--text-muted)' : 'var(--text-dim)', fontSize: 12, padding: '1px 4px', lineHeight: 1 }}>▲</button>
+                      <button onClick={() => moveDown(i)} disabled={i === items.length - 1} style={{ background: 'none', border: 'none', cursor: i === items.length - 1 ? 'default' : 'pointer', color: i === items.length - 1 ? 'var(--text-muted)' : 'var(--text-dim)', fontSize: 12, padding: '1px 4px', lineHeight: 1 }}>▼</button>
+                    </div>
+
+                    {/* Remove */}
+                    <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 16, padding: '2px 4px', flexShrink: 0, lineHeight: 1, opacity: 0.7 }}>✕</button>
                   </div>
                 ))}
               </div>
-              <button onClick={handleSave} className="btn btn-primary btn-full btn-lg" disabled={saving || items.length === 0}>
+
+              <button onClick={handleSave} className="btn btn-primary btn-full btn-lg" disabled={saving}>
                 {saving ? '…' : !group.currentRoundId ? '🚀 Speichern & erste Runde starten' : 'Warteschlange speichern'}
               </button>
             </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-dim)', fontSize: 13 }}>
+              Noch keine Kategorien — importiere eine CSV oder JSON Datei.
+            </div>
           )}
         </div>
       </div>
     </div>
   )
 }
+
 
 // ─── Invite Modal ───
 function InviteModal({ code, onClose }) {
@@ -341,6 +388,34 @@ export default function GroupPage() {
     else if (round.status === 'voting') { await updateDoc(doc(db, 'rounds', round.id), { status: 'results' }); await autoStartNext(round) }
   }
 
+  const handleDelete = async () => {
+    if (!window.confirm('Gruppe wirklich löschen? Alle Runden, Songs und Abstimmungen werden unwiderruflich gelöscht.')) return
+    if (!window.confirm('Bist du sicher? Das kann nicht rückgängig gemacht werden.')) return
+    try {
+      // Delete all subcollections + documents
+      const batch = writeBatch(db)
+      // Delete rounds
+      const roundsSnap = await getDocs(query(collection(db, 'rounds'), where('groupId', '==', groupId)))
+      for (const r of roundsSnap.docs) {
+        // Delete submissions and votes for each round
+        const subsSnap = await getDocs(fsQuery(collection(db, 'submissions'), where('roundId', '==', r.id)))
+        subsSnap.docs.forEach(d => batch.delete(d.ref))
+        const votesSnap = await getDocs(fsQuery(collection(db, 'votes'), where('roundId', '==', r.id)))
+        votesSnap.docs.forEach(d => batch.delete(d.ref))
+        batch.delete(r.ref)
+      }
+      // Delete chat messages
+      const msgsSnap = await getDocs(collection(db, 'groups', groupId, 'messages'))
+      msgsSnap.docs.forEach(d => batch.delete(d.ref))
+      // Delete group itself
+      batch.delete(doc(db, 'groups', groupId))
+      await batch.commit()
+      navigate('/')
+    } catch (err) {
+      alert('Fehler beim Löschen: ' + err.message)
+    }
+  }
+
   const handleLeave = async () => {
     if (!window.confirm('Gruppe wirklich verlassen?')) return
     await updateDoc(doc(db, 'groups', groupId), {
@@ -363,10 +438,26 @@ export default function GroupPage() {
           <h1 style={{ fontSize: 26 }}>{group.name}</h1>
           {group.description && <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 4 }}>{group.description}</p>}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button onClick={() => setModal('invite')} className="btn btn-ghost btn-sm">
             📨 Einladen
           </button>
+          {isAdmin && (
+            <button onClick={handleDelete} style={{
+              background: 'rgba(240,96,96,0.12)',
+              border: '1px solid rgba(240,96,96,0.3)',
+              borderRadius: 'var(--radius)',
+              color: 'var(--danger)',
+              padding: '7px 12px',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+              flexShrink: 0,
+            }}>
+              🗑 Löschen
+            </button>
+          )}
           {!isAdmin && (
             <button onClick={handleLeave} style={{
               background: 'rgba(240,96,96,0.12)',
@@ -420,11 +511,7 @@ export default function GroupPage() {
       {/* ── Rounds ── */}
       {tab === 'runden' && (
         <div>
-          {isAdmin && (
-            <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 16 }}>
-              ⏭ Warteschlange importieren
-            </button>
-          )}
+          <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 16 }}>⏭ Warteschlange bearbeiten</button>
           {queueLength > 0 && (
             <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--accent)' }}>
               ⏭ {queueLength} Kategorie{queueLength !== 1 ? 'n' : ''} in der Warteschlange
@@ -479,12 +566,12 @@ export default function GroupPage() {
       {/* ── Queue ── */}
       {tab === 'warteschlange' && (
         <div>
-          {isAdmin && <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 20 }}>Warteschlange importieren</button>}
+          <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 20 }}>⏭ Warteschlange bearbeiten</button>
           {queueLength === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">⏭</div>
               <h3>Warteschlange leer</h3>
-              <p>{isAdmin ? 'Importiere eine CSV oder JSON Datei.' : 'Keine Kategorien in der Warteschlange.'}</p>
+              <p>{'Noch keine Kategorien — importiere eine CSV oder JSON Datei.'}</p>
             </div>
           ) : (
             <div className="card">
@@ -538,7 +625,7 @@ export default function GroupPage() {
         </div>
       )}
 
-      {modal === 'queue'  && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} />}
+      {modal === 'queue'  && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} currentUserId={user.uid} />}
       {modal === 'invite' && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
     </div>
   )

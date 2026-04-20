@@ -8,6 +8,7 @@ import Chat from '../components/Chat'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   orderBy, addDoc, updateDoc, serverTimestamp, getDocs,
+  arrayRemove, deleteField,
 } from 'firebase/firestore'
 
 function StatusBadge({ status }) {
@@ -25,7 +26,7 @@ function toItem(raw) {
   return { name: raw.name || '', description: raw.description || '' }
 }
 
-// ─── Queue Modal (file import only) ───
+// ─── Queue Modal ───
 function QueueModal({ group, onClose, onStarted }) {
   const { user } = useAuth()
   const fileRef = useRef()
@@ -55,7 +56,6 @@ function QueueModal({ group, onClose, onStarted }) {
           setImportCount(newItems.length)
           return
         }
-        // CSV
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
         const newItems = lines.map(line => {
           const sep = line.includes(';') ? ';' : ','
@@ -77,24 +77,17 @@ function QueueModal({ group, onClose, onStarted }) {
   const handleSave = async () => {
     setSaving(true)
     const clean = items.filter(i => i.name.trim())
-
-    // Check if we should auto-start first round
     const groupSnap = await getDoc(doc(db, 'groups', group.id))
     const currentRoundId = groupSnap.data()?.currentRoundId
-
     let shouldAutoStart = false
     if (clean.length > 0) {
       if (!currentRoundId) {
         shouldAutoStart = true
       } else {
-        // Check if current round is finished
         const roundSnap = await getDoc(doc(db, 'rounds', currentRoundId))
-        if (!roundSnap.exists() || roundSnap.data()?.status === 'results') {
-          shouldAutoStart = true
-        }
+        if (!roundSnap.exists() || roundSnap.data()?.status === 'results') shouldAutoStart = true
       }
     }
-
     if (shouldAutoStart) {
       const first = clean[0]
       const now = Date.now()
@@ -120,7 +113,6 @@ function QueueModal({ group, onClose, onStarted }) {
       onStarted(roundRef.id)
       return
     }
-
     await updateDoc(doc(db, 'groups', group.id), { categoryQueue: clean })
     setSaving(false)
     onClose()
@@ -135,60 +127,45 @@ function QueueModal({ group, onClose, onStarted }) {
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-
-          {/* Format hint */}
           <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-            <strong style={{ color: 'var(--text)' }}>CSV Format</strong> (eine Kategorie pro Zeile):<br />
+            <strong style={{ color: 'var(--text)' }}>CSV Format</strong>:<br />
             <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Ein Song den du heimlich liebst</code><br />
-            <code style={{ color: 'var(--accent)' }}>Beste 90er,Der beste Song aus den Neunzigern</code><br />
-            <br />
             <strong style={{ color: 'var(--text)' }}>JSON Format</strong>:<br />
             <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
           </div>
 
-          {/* Import button */}
-          <button
-            onClick={() => fileRef.current.click()}
-            className="btn btn-primary btn-full btn-lg"
-            style={{ marginBottom: 12 }}
-          >
-            📁 CSV oder JSON Datei importieren
+          <button onClick={() => fileRef.current.click()} className="btn btn-primary btn-full btn-lg" style={{ marginBottom: 12 }}>
+            📁 CSV oder JSON importieren
           </button>
           <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
 
           {importError && <div className="error-msg">{importError}</div>}
-
           {importCount !== null && (
             <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 12, fontSize: 13, color: 'var(--accent)' }}>
               ✓ {importCount} Kategorien importiert
             </div>
           )}
 
-          {/* Preview list */}
           {items.length > 0 && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <div className="section-title" style={{ margin: 0 }}>Vorschau</div>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {items.length} Kategorien · ~{items.length * 7} Tage
-                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{items.length} · ~{items.length * 7} Tage</span>
               </div>
-
               <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
                 {items.map((item, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface2)', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border)' }}>
                     <span style={{ fontFamily: 'Fraunces', fontSize: 16, color: 'var(--text-muted)', width: 24, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                      {item.description && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.description}</div>}
+                      {item.description && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>{item.description}</div>}
                     </div>
                     <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, padding: 4, flexShrink: 0 }}>✕</button>
                   </div>
                 ))}
               </div>
-
               <button onClick={handleSave} className="btn btn-primary btn-full btn-lg" disabled={saving || items.length === 0}>
-                {saving ? '…' : items.length > 0 && !group.currentRoundId ? `🚀 Speichern & erste Runde starten` : 'Warteschlange speichern'}
+                {saving ? '…' : !group.currentRoundId ? '🚀 Speichern & erste Runde starten' : 'Warteschlange speichern'}
               </button>
             </>
           )}
@@ -283,15 +260,15 @@ export default function GroupPage() {
     return onSnapshot(q, snap => setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [groupId])
 
-  // Auto-advance phases + auto-start next from queue
+  // Auto-advance + auto-start next
   useEffect(() => {
     if (!rounds.length || !group) return
     const check = async () => {
       const now = new Date()
       for (const round of rounds) {
-        if (round.status === 'submission' && round.submissionDeadline?.toDate?.() < now) {
+        if (round.status === 'submission' && round.submissionDeadline?.toDate?.() < now)
           await updateDoc(doc(db, 'rounds', round.id), { status: 'voting' })
-        } else if (round.status === 'voting' && round.votingDeadline?.toDate?.() < now) {
+        else if (round.status === 'voting' && round.votingDeadline?.toDate?.() < now) {
           await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
           await autoStartNext(round)
         }
@@ -364,6 +341,15 @@ export default function GroupPage() {
     else if (round.status === 'voting') { await updateDoc(doc(db, 'rounds', round.id), { status: 'results' }); await autoStartNext(round) }
   }
 
+  const handleLeave = async () => {
+    if (!window.confirm('Gruppe wirklich verlassen?')) return
+    await updateDoc(doc(db, 'groups', groupId), {
+      members: arrayRemove(user.uid),
+      [`memberNames.${user.uid}`]: deleteField(),
+    })
+    navigate('/')
+  }
+
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
   if (!group) return <div className="page"><p>Gruppe nicht gefunden.</p></div>
 
@@ -377,13 +363,19 @@ export default function GroupPage() {
           <h1 style={{ fontSize: 26 }}>{group.name}</h1>
           {group.description && <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 4 }}>{group.description}</p>}
         </div>
-        <button onClick={() => setModal('invite')} className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16,6 12,2 8,6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-          Einladen
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button onClick={() => setModal('invite')} className="btn btn-ghost btn-sm">
+            📨 Einladen
+          </button>
+          {!isAdmin && (
+            <button onClick={handleLeave} className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }}>
+              🚪 Verlassen
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Members row with avatars */}
+      {/* Members row */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
         {group.members.map(uid => (
           <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -447,9 +439,6 @@ export default function GroupPage() {
                     {round.description && <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 8, fontStyle: 'italic' }}>{round.description}</p>}
                     {round.status === 'submission' && <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>Einreichung: {formatDeadline(round.submissionDeadline)}</p>}
                     {round.status === 'voting'     && <p style={{ fontSize: 12, color: 'var(--accent2)' }}>Abstimmung: {formatDeadline(round.votingDeadline)}</p>}
-                    {round.status === 'results' && round.playlistId && (
-                      <a href={`https://open.spotify.com/playlist/${round.playlistId}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="badge badge-green">🎵 Playlist öffnen</a>
-                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9,18 15,12 9,6"/></svg>
@@ -476,7 +465,7 @@ export default function GroupPage() {
         </div>
       )}
 
-      {/* ── Queue Tab ── */}
+      {/* ── Queue ── */}
       {tab === 'warteschlange' && (
         <div>
           {isAdmin && <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 20 }}>Warteschlange importieren</button>}
@@ -484,7 +473,7 @@ export default function GroupPage() {
             <div className="empty-state">
               <div className="empty-state-icon">⏭</div>
               <h3>Warteschlange leer</h3>
-              <p>{isAdmin ? 'Importiere eine CSV oder JSON Datei mit Kategorien.' : 'Keine Kategorien in der Warteschlange.'}</p>
+              <p>{isAdmin ? 'Importiere eine CSV oder JSON Datei.' : 'Keine Kategorien in der Warteschlange.'}</p>
             </div>
           ) : (
             <div className="card">
@@ -538,8 +527,8 @@ export default function GroupPage() {
         </div>
       )}
 
-      {modal === 'queue'   && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} />}
-      {modal === 'invite'  && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
+      {modal === 'queue'  && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} />}
+      {modal === 'invite' && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
     </div>
   )
 }

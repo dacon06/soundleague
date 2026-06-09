@@ -233,10 +233,22 @@ function VotingPhase({ round, group, groupId, roundId }) {
     setSaving(true)
     try {
       await Promise.all(existingVotes.map(v => deleteDoc(doc(db, 'votes', v.id))))
-      await Promise.all(Object.entries(myVotes).filter(([_, p]) => p > 0).map(([subId, points]) => {
-        const sub = submissions.find(s => s.id === subId)
-        return addDoc(collection(db, 'votes'), { roundId, groupId, voterId: user.uid, submissionId: subId, submitterUserId: sub?.userId, points, comment: myComments[subId] || '', createdAt: serverTimestamp() })
-      }))
+      // Speichere alle fremden Einträge die entweder Stimmen ODER einen Kommentar haben
+      const toSave = submissions.filter(sub =>
+        sub.userId !== user.uid &&
+        ((myVotes[sub.id] || 0) > 0 || (myComments[sub.id] || '').trim() !== '')
+      )
+      await Promise.all(toSave.map(sub =>
+        addDoc(collection(db, 'votes'), {
+          roundId, groupId,
+          voterId: user.uid,
+          submissionId: sub.id,
+          submitterUserId: sub.userId,
+          points: myVotes[sub.id] || 0,
+          comment: myComments[sub.id] || '',
+          createdAt: serverTimestamp(),
+        })
+      ))
       const snap = await getDocs(query(collection(db, 'votes'), where('roundId', '==', roundId), where('voterId', '==', user.uid)))
       setExistingVotes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setSaved(true)
@@ -248,6 +260,9 @@ function VotingPhase({ round, group, groupId, roundId }) {
   const otherSubs = submissions.filter(s => s.userId !== user.uid)
   const mySubmission = submissions.find(s => s.userId === user.uid)
 
+  // Speichern-Button aktiv wenn Stimmen vergeben ODER irgendein Kommentar bei fremdem Song geschrieben
+  const hasAnyInput = usedVotes > 0 || otherSubs.some(sub => (myComments[sub.id] || '').trim() !== '')
+
   return (
     <div>
       <PlaylistButton submissions={submissions} />
@@ -258,7 +273,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
           <span style={{ fontSize: 24, fontFamily: 'Fraunces', color: 'var(--accent2)' }}>{remainingVotes} <span style={{ fontSize: 13 }}>verbleibend</span></span>
         </div>
         <div className="progress-bar"><div className="progress-fill" style={{ width: `${(usedVotes / totalVotes) * 100}%`, background: 'var(--accent2)' }} /></div>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Verteile deine {totalVotes} Stimmen. Mehrere auf einen Song möglich.</p>
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Verteile deine {totalVotes} Stimmen. Mehrere auf einen Song möglich. Du kannst bei jedem Song kommentieren.</p>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -285,12 +300,12 @@ function VotingPhase({ round, group, groupId, roundId }) {
             </div>
           </div>
         ))}
-      </div>
 
-      {mySubmission && (
-        <div style={{ marginTop: 20 }}>
-          <div className="section-title">Dein eingereichter Song</div>
+        {mySubmission && (
           <div className="card" style={{ borderColor: 'rgba(124,106,245,0.3)', background: 'rgba(124,106,245,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: '#9B8FE8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Dein Song</span>
+            </div>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F4FF', marginBottom: 2 }}>{mySubmission.songTitle}</div>
             <div style={{ fontSize: 12, color: '#7A7A9A', marginBottom: 10 }}>{mySubmission.channelTitle}</div>
             <YouTubePlayer videoId={mySubmission.videoId} title={mySubmission.songTitle} />
@@ -298,12 +313,12 @@ function VotingPhase({ round, group, groupId, roundId }) {
               <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 10, fontStyle: 'italic' }}>„{mySubmission.submissionComment}"</p>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div style={{ position: 'sticky', bottom: 'calc(var(--nav-height) + 8px)', marginTop: 20 }}>
-        <button onClick={handleSave} className={`btn btn-full btn-lg ${saved ? 'btn-secondary' : 'btn-primary'}`} disabled={saving || usedVotes === 0} style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }}>
-          {saving ? '…' : saved ? '✓ Gespeichert' : `Stimmen abgeben (${usedVotes}/${totalVotes})`}
+        <button onClick={handleSave} className={`btn btn-full btn-lg ${saved ? 'btn-secondary' : 'btn-primary'}`} disabled={saving || !hasAnyInput} style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }}>
+          {saving ? '…' : saved ? '✓ Gespeichert' : usedVotes > 0 ? `Stimmen abgeben (${usedVotes}/${totalVotes})` : 'Kommentare speichern'}
         </button>
       </div>
     </div>

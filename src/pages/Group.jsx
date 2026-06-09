@@ -27,6 +27,48 @@ function toItem(raw) {
   return { name: raw.name || '', description: raw.description || '' }
 }
 
+// ─── Kalenderbasierte Deadlines ───
+// Einreichung: beginnt Montag 00:00, endet Samstag 00:00 (dieselbe Woche)
+// Abstimmung: beginnt Samstag 00:00, endet nächsten Montag 00:00
+//
+// Gibt { submissionDeadline, votingDeadline } zurück basierend auf dem aktuellen Wochentag:
+// - Mo–Fr: Einreichung bis Sa 00:00, Abstimmung bis Mo 00:00 der Folgewoche
+// - Sa–So: startet in der nächsten Woche (nächster Montag 00:00 für Einreichung)
+function getCalendarDeadlines() {
+  const now = new Date()
+  const dayOfWeek = now.getDay() // 0=So, 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa
+
+  // Nächsten Montag 00:00 berechnen (oder diesen Montag, falls heute Montag)
+  const nextMonday = new Date(now)
+  nextMonday.setHours(0, 0, 0, 0)
+  // Wie viele Tage bis zum nächsten Montag?
+  const daysUntilMonday = dayOfWeek === 1 ? 0 : (8 - dayOfWeek) % 7 || 7
+  nextMonday.setDate(now.getDate() + daysUntilMonday)
+
+  // Samstag dieser Runde (5 Tage nach Montag)
+  const saturdayOfRound = new Date(nextMonday)
+  saturdayOfRound.setDate(nextMonday.getDate() + 5) // Mo + 5 = Sa
+
+  // Montag der Folgewoche (Ende der Abstimmung)
+  const mondayAfterVoting = new Date(nextMonday)
+  mondayAfterVoting.setDate(nextMonday.getDate() + 7) // Mo + 7 = nächster Mo
+
+  // Falls heute Samstag oder Sonntag: nächste Runde erst ab übernächstem Montag
+  if (dayOfWeek === 6 || dayOfWeek === 0) {
+    // Nächster Montag ist bereits nextMonday (übernächste Woche),
+    // Samstag und Montag danach werden korrekt berechnet
+    return {
+      submissionDeadline: saturdayOfRound,
+      votingDeadline: mondayAfterVoting,
+    }
+  }
+
+  return {
+    submissionDeadline: saturdayOfRound,
+    votingDeadline: mondayAfterVoting,
+  }
+}
+
 // ─── Queue Modal ───
 function QueueModal({ group, onClose, onStarted, currentUserId }) {
   const fileRef = useRef()
@@ -108,14 +150,14 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
     }
     if (shouldAutoStart) {
       const first = clean[0]
-      const now = Date.now()
+      const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
       const roundRef = await addDoc(collection(db, 'rounds'), {
         groupId: group.id,
         prompt: first.name,
         description: first.description || '',
         status: 'submission',
-        submissionDeadline: new Date(now + 120 * 3600_000),
-        votingDeadline:     new Date(now + 168 * 3600_000),
+        submissionDeadline,
+        votingDeadline,
         playlistId: null,
         createdBy: currentUserId,
         createdAt: serverTimestamp(),
@@ -383,14 +425,14 @@ export default function GroupPage() {
     const queue = (groupSnap.data()?.categoryQueue || []).map(toItem)
     if (!queue.length) return
     const next = queue[0]
-    const now = Date.now()
+    const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
     const roundRef = await addDoc(collection(db, 'rounds'), {
       groupId,
       prompt: next.name,
       description: next.description || '',
       status: 'submission',
-      submissionDeadline: new Date(now + 120 * 3600_000),
-      votingDeadline:     new Date(now + 168 * 3600_000),
+      submissionDeadline,
+      votingDeadline,
       playlistId: null,
       createdBy: finishedRound.createdBy,
       createdAt: serverTimestamp(),
@@ -430,10 +472,14 @@ export default function GroupPage() {
 
   const formatDeadline = (ts) => {
     if (!ts?.toDate) return ''
-    const diff = ts.toDate() - new Date()
+    const target = ts.toDate()
+    const diff = target - new Date()
     if (diff < 0) return 'Abgelaufen'
-    const h = Math.floor(diff / 3600_000)
-    return h < 24 ? `Noch ${h}h` : `Noch ${Math.floor(h / 24)}d ${h % 24}h`
+    const days = Math.floor(diff / 86_400_000)
+    const hours = Math.floor((diff % 86_400_000) / 3_600_000)
+    const dateStr = target.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+    if (days === 0) return `Heute bis ${target.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} (noch ${hours}h)`
+    return `${dateStr} (noch ${days}d ${hours}h)`
   }
 
   const handleSkip = async (round) => {

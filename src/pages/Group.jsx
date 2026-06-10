@@ -76,6 +76,24 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
   const [saving, setSaving] = useState(false)
   const [importError, setImportError] = useState('')
   const [importCount, setImportCount] = useState(null)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [insertAt, setInsertAt] = useState('end')
+
+  const handleAddManual = () => {
+    const name = newName.trim()
+    if (!name) return
+    const item = { name, description: newDesc.trim() }
+    setItems(prev => {
+      const arr = [...prev]
+      const pos = insertAt === 'end' ? arr.length : Math.max(0, Math.min(parseInt(insertAt, 10), arr.length))
+      arr.splice(pos, 0, item)
+      return arr
+    })
+    setNewName('')
+    setNewDesc('')
+    setInsertAt('end')
+  }
 
   const handleFileImport = (e) => {
     setImportError('')
@@ -187,13 +205,50 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-          {/* Format hint */}
-          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-            <strong style={{ color: 'var(--text)' }}>CSV:</strong> <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Beschreibung</code><br />
-            <strong style={{ color: 'var(--text)' }}>JSON:</strong> <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
+          {/* Manual entry */}
+          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14, border: '1px solid var(--border2)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Thema manuell hinzufügen</div>
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddManual()}
+              placeholder="Thema (z.B. Guilty Pleasure)"
+              style={{ fontSize: 13, marginBottom: 8 }}
+            />
+            <input
+              type="text"
+              value={newDesc}
+              onChange={e => setNewDesc(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddManual()}
+              placeholder="Beschreibung (optional)"
+              style={{ fontSize: 13, marginBottom: 8 }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select
+                value={insertAt}
+                onChange={e => setInsertAt(e.target.value)}
+                style={{ flex: 1, fontSize: 13, padding: '8px 10px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif' }}
+              >
+                <option value="end">Ans Ende</option>
+                <option value="0">An den Anfang</option>
+                {items.map((item, i) => (
+                  <option key={i} value={i + 1}>Nach Position {i + 1} ({item.name})</option>
+                ))}
+              </select>
+              <button
+                onClick={handleAddManual}
+                disabled={!newName.trim()}
+                className="btn btn-primary btn-sm"
+                style={{ flexShrink: 0 }}
+              >
+                + Hinzufügen
+              </button>
+            </div>
           </div>
 
-          <button onClick={() => fileRef.current.click()} className="btn btn-primary btn-full" style={{ marginBottom: 10 }}>
+          {/* File import */}
+          <button onClick={() => fileRef.current.click()} className="btn btn-ghost btn-full" style={{ marginBottom: 10 }}>
             📁 CSV oder JSON importieren
           </button>
           <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
@@ -253,8 +308,8 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
               </button>
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-dim)', fontSize: 13 }}>
-              Noch keine Kategorien — importiere eine CSV oder JSON Datei.
+            <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-dim)', fontSize: 13 }}>
+              Noch keine Kategorien — füge oben welche hinzu oder importiere eine Datei.
             </div>
           )}
         </div>

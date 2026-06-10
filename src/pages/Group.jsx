@@ -31,37 +31,27 @@ function toItem(raw) {
 // Einreichung: beginnt Montag 00:00, endet Samstag 00:00 (dieselbe Woche)
 // Abstimmung: beginnt Samstag 00:00, endet nächsten Montag 00:00
 //
-// Gibt { submissionDeadline, votingDeadline } zurück basierend auf dem aktuellen Wochentag:
-// - Mo–Fr: Einreichung bis Sa 00:00, Abstimmung bis Mo 00:00 der Folgewoche
-// - Sa–So: startet in der nächsten Woche (nächster Montag 00:00 für Einreichung)
-function getCalendarDeadlines() {
+// weeksOffset=0 → nächste/aktuelle Woche, 1 → übernächste Woche, usw.
+function getCalendarDeadlines(weeksOffset = 0) {
   const now = new Date()
   const dayOfWeek = now.getDay() // 0=So, 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa
 
   // Nächsten Montag 00:00 berechnen (oder diesen Montag, falls heute Montag)
   const nextMonday = new Date(now)
   nextMonday.setHours(0, 0, 0, 0)
-  // Wie viele Tage bis zum nächsten Montag?
   const daysUntilMonday = dayOfWeek === 1 ? 0 : (8 - dayOfWeek) % 7 || 7
   nextMonday.setDate(now.getDate() + daysUntilMonday)
 
+  // Offset anwenden
+  nextMonday.setDate(nextMonday.getDate() + weeksOffset * 7)
+
   // Samstag dieser Runde (5 Tage nach Montag)
   const saturdayOfRound = new Date(nextMonday)
-  saturdayOfRound.setDate(nextMonday.getDate() + 5) // Mo + 5 = Sa
+  saturdayOfRound.setDate(nextMonday.getDate() + 5)
 
   // Montag der Folgewoche (Ende der Abstimmung)
   const mondayAfterVoting = new Date(nextMonday)
-  mondayAfterVoting.setDate(nextMonday.getDate() + 7) // Mo + 7 = nächster Mo
-
-  // Falls heute Samstag oder Sonntag: nächste Runde erst ab übernächstem Montag
-  if (dayOfWeek === 6 || dayOfWeek === 0) {
-    // Nächster Montag ist bereits nextMonday (übernächste Woche),
-    // Samstag und Montag danach werden korrekt berechnet
-    return {
-      submissionDeadline: saturdayOfRound,
-      votingDeadline: mondayAfterVoting,
-    }
-  }
+  mondayAfterVoting.setDate(nextMonday.getDate() + 7)
 
   return {
     submissionDeadline: saturdayOfRound,
@@ -76,24 +66,6 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
   const [saving, setSaving] = useState(false)
   const [importError, setImportError] = useState('')
   const [importCount, setImportCount] = useState(null)
-  const [newName, setNewName] = useState('')
-  const [newDesc, setNewDesc] = useState('')
-  const [insertAt, setInsertAt] = useState('end')
-
-  const handleAddManual = () => {
-    const name = newName.trim()
-    if (!name) return
-    const item = { name, description: newDesc.trim() }
-    setItems(prev => {
-      const arr = [...prev]
-      const pos = insertAt === 'end' ? arr.length : Math.max(0, Math.min(parseInt(insertAt, 10), arr.length))
-      arr.splice(pos, 0, item)
-      return arr
-    })
-    setNewName('')
-    setNewDesc('')
-    setInsertAt('end')
-  }
 
   const handleFileImport = (e) => {
     setImportError('')
@@ -205,50 +177,13 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-          {/* Manual entry */}
-          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14, border: '1px solid var(--border2)' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Thema manuell hinzufügen</div>
-            <input
-              type="text"
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddManual()}
-              placeholder="Thema (z.B. Guilty Pleasure)"
-              style={{ fontSize: 13, marginBottom: 8 }}
-            />
-            <input
-              type="text"
-              value={newDesc}
-              onChange={e => setNewDesc(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddManual()}
-              placeholder="Beschreibung (optional)"
-              style={{ fontSize: 13, marginBottom: 8 }}
-            />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <select
-                value={insertAt}
-                onChange={e => setInsertAt(e.target.value)}
-                style={{ flex: 1, fontSize: 13, padding: '8px 10px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif' }}
-              >
-                <option value="end">Ans Ende</option>
-                <option value="0">An den Anfang</option>
-                {items.map((item, i) => (
-                  <option key={i} value={i + 1}>Nach Position {i + 1} ({item.name})</option>
-                ))}
-              </select>
-              <button
-                onClick={handleAddManual}
-                disabled={!newName.trim()}
-                className="btn btn-primary btn-sm"
-                style={{ flexShrink: 0 }}
-              >
-                + Hinzufügen
-              </button>
-            </div>
+          {/* Format hint */}
+          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+            <strong style={{ color: 'var(--text)' }}>CSV:</strong> <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Beschreibung</code><br />
+            <strong style={{ color: 'var(--text)' }}>JSON:</strong> <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
           </div>
 
-          {/* File import */}
-          <button onClick={() => fileRef.current.click()} className="btn btn-ghost btn-full" style={{ marginBottom: 10 }}>
+          <button onClick={() => fileRef.current.click()} className="btn btn-primary btn-full" style={{ marginBottom: 10 }}>
             📁 CSV oder JSON importieren
           </button>
           <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
@@ -308,10 +243,89 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
               </button>
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-dim)', fontSize: 13 }}>
-              Noch keine Kategorien — füge oben welche hinzu oder importiere eine Datei.
+            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-dim)', fontSize: 13 }}>
+              Noch keine Kategorien — importiere eine CSV oder JSON Datei.
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Skip Modal ───
+function SkipModal({ round, onClose, onConfirm }) {
+  const [weeksOffset, setWeeksOffset] = useState(0)
+
+  const isSubmission = round.status === 'submission'
+
+  // Berechne Vorschau-Datum für gewählten Offset
+  const preview = (() => {
+    const { submissionDeadline, votingDeadline } = getCalendarDeadlines(weeksOffset)
+    const fmt = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+    return { sub: fmt(submissionDeadline), vote: fmt(votingDeadline) }
+  })()
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-handle" />
+        <div className="modal-header">
+          <h3 style={{ fontSize: 20, color: '#F5F4FF' }}>⏭ Schritt überspringen</h3>
+          <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
+        </div>
+        <div className="modal-body">
+
+          {/* Warnung */}
+          <div style={{ background: 'rgba(240,96,96,0.1)', border: '1px solid rgba(240,96,96,0.3)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#F06060', marginBottom: 4 }}>
+              ⚠️ {isSubmission ? 'Einreichung wirklich überspringen?' : 'Abstimmung wirklich beenden?'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+              {isSubmission
+                ? 'Die Einreichungsphase wird sofort beendet und die Abstimmung beginnt. Songs die noch nicht eingereicht wurden können nicht mehr nachgereicht werden.'
+                : 'Die Abstimmung wird sofort beendet und die Ergebnisse werden veröffentlicht. Stimmen die noch nicht abgegeben wurden gehen verloren.'}
+            </div>
+          </div>
+
+          {/* Wochen-Auswahl — nur relevant wenn nächste Runde startet (beim Voting-Skip) */}
+          {!isSubmission && (
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
+                Nächste Runde starten in
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[0, 1, 2, 3].map(offset => {
+                  const { submissionDeadline, votingDeadline } = getCalendarDeadlines(offset)
+                  const fmt = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+                  const label = offset === 0 ? 'Diese Woche' : offset === 1 ? 'Nächste Woche' : `In ${offset} Wochen`
+                  return (
+                    <label key={offset} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: weeksOffset === offset ? 'rgba(124,106,245,0.12)' : 'var(--surface3)', border: `1px solid ${weeksOffset === offset ? 'rgba(124,106,245,0.4)' : 'var(--border2)'}`, borderRadius: 8, padding: '10px 14px' }}>
+                      <input type="radio" name="week" checked={weeksOffset === offset} onChange={() => setWeeksOffset(offset)} style={{ accentColor: 'var(--accent)' }} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF' }}>{label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
+                          Einreichung bis {fmt(submissionDeadline)} · Ergebnisse {fmt(votingDeadline)}
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} className="btn btn-ghost btn-full">Abbrechen</button>
+            <button
+              onClick={() => onConfirm(weeksOffset)}
+              className="btn btn-full"
+              style={{ background: '#F06060', color: '#fff', border: 'none' }}
+            >
+              {isSubmission ? 'Ja, überspringen' : 'Beenden & nächste Runde'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -475,12 +489,12 @@ export default function GroupPage() {
     check()
   }, [rounds, group])
 
-  const autoStartNext = async (finishedRound) => {
+  const autoStartNext = async (finishedRound, weeksOffset = 0) => {
     const groupSnap = await getDoc(doc(db, 'groups', groupId))
     const queue = (groupSnap.data()?.categoryQueue || []).map(toItem)
     if (!queue.length) return
     const next = queue[0]
-    const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
+    const { submissionDeadline, votingDeadline } = getCalendarDeadlines(weeksOffset)
     const roundRef = await addDoc(collection(db, 'rounds'), {
       groupId,
       prompt: next.name,
@@ -537,10 +551,23 @@ export default function GroupPage() {
     return `${dateStr} (noch ${days}d ${hours}h)`
   }
 
-  const handleSkip = async (round) => {
+  const [skipRound, setSkipRound] = useState(null)
+
+  const handleSkip = (round) => {
     if (!isAdmin) return
-    if (round.status === 'submission') await updateDoc(doc(db, 'rounds', round.id), { status: 'voting' })
-    else if (round.status === 'voting') { await updateDoc(doc(db, 'rounds', round.id), { status: 'results' }); await autoStartNext(round) }
+    setSkipRound(round)
+  }
+
+  const handleSkipConfirm = async (weeksOffset) => {
+    const round = skipRound
+    setSkipRound(null)
+    if (!round) return
+    if (round.status === 'submission') {
+      await updateDoc(doc(db, 'rounds', round.id), { status: 'voting' })
+    } else if (round.status === 'voting') {
+      await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
+      await autoStartNext(round, weeksOffset)
+    }
   }
 
   const handleDeleteRound = async (roundId) => {
@@ -814,6 +841,7 @@ export default function GroupPage() {
 
       {modal === 'queue'  && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} currentUserId={user.uid} />}
       {modal === 'invite' && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
+      {skipRound && <SkipModal round={skipRound} onClose={() => setSkipRound(null)} onConfirm={handleSkipConfirm} />}
     </div>
   )
 }

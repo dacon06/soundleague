@@ -31,27 +31,37 @@ function toItem(raw) {
 // Einreichung: beginnt Montag 00:00, endet Samstag 00:00 (dieselbe Woche)
 // Abstimmung: beginnt Samstag 00:00, endet nächsten Montag 00:00
 //
-// weeksOffset=0 → nächste/aktuelle Woche, 1 → übernächste Woche, usw.
-function getCalendarDeadlines(weeksOffset = 0) {
+// Gibt { submissionDeadline, votingDeadline } zurück basierend auf dem aktuellen Wochentag:
+// - Mo–Fr: Einreichung bis Sa 00:00, Abstimmung bis Mo 00:00 der Folgewoche
+// - Sa–So: startet in der nächsten Woche (nächster Montag 00:00 für Einreichung)
+function getCalendarDeadlines() {
   const now = new Date()
   const dayOfWeek = now.getDay() // 0=So, 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa
 
   // Nächsten Montag 00:00 berechnen (oder diesen Montag, falls heute Montag)
   const nextMonday = new Date(now)
   nextMonday.setHours(0, 0, 0, 0)
+  // Wie viele Tage bis zum nächsten Montag?
   const daysUntilMonday = dayOfWeek === 1 ? 0 : (8 - dayOfWeek) % 7 || 7
   nextMonday.setDate(now.getDate() + daysUntilMonday)
 
-  // Offset anwenden
-  nextMonday.setDate(nextMonday.getDate() + weeksOffset * 7)
-
   // Samstag dieser Runde (5 Tage nach Montag)
   const saturdayOfRound = new Date(nextMonday)
-  saturdayOfRound.setDate(nextMonday.getDate() + 5)
+  saturdayOfRound.setDate(nextMonday.getDate() + 5) // Mo + 5 = Sa
 
   // Montag der Folgewoche (Ende der Abstimmung)
   const mondayAfterVoting = new Date(nextMonday)
-  mondayAfterVoting.setDate(nextMonday.getDate() + 7)
+  mondayAfterVoting.setDate(nextMonday.getDate() + 7) // Mo + 7 = nächster Mo
+
+  // Falls heute Samstag oder Sonntag: nächste Runde erst ab übernächstem Montag
+  if (dayOfWeek === 6 || dayOfWeek === 0) {
+    // Nächster Montag ist bereits nextMonday (übernächste Woche),
+    // Samstag und Montag danach werden korrekt berechnet
+    return {
+      submissionDeadline: saturdayOfRound,
+      votingDeadline: mondayAfterVoting,
+    }
+  }
 
   return {
     submissionDeadline: saturdayOfRound,
@@ -66,6 +76,24 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
   const [saving, setSaving] = useState(false)
   const [importError, setImportError] = useState('')
   const [importCount, setImportCount] = useState(null)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [insertAt, setInsertAt] = useState('end')
+
+  const handleAddManual = () => {
+    const name = newName.trim()
+    if (!name) return
+    const item = { name, description: newDesc.trim() }
+    setItems(prev => {
+      const arr = [...prev]
+      const pos = insertAt === 'end' ? arr.length : Math.max(0, Math.min(parseInt(insertAt, 10), arr.length))
+      arr.splice(pos, 0, item)
+      return arr
+    })
+    setNewName('')
+    setNewDesc('')
+    setInsertAt('end')
+  }
 
   const handleFileImport = (e) => {
     setImportError('')
@@ -177,17 +205,24 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-          {/* Format hint */}
-          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-            <strong style={{ color: 'var(--text)' }}>CSV:</strong> <code style={{ color: 'var(--accent)' }}>Guilty Pleasure,Beschreibung</code><br />
-            <strong style={{ color: 'var(--text)' }}>JSON:</strong> <code style={{ color: 'var(--accent)' }}>{`[{"name":"...","description":"..."}]`}</code>
+          {/* Manuelles Hinzufügen */}
+          <div style={{ background: 'var(--surface3)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14, border: '1px solid var(--border2)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Thema manuell hinzufügen</div>
+            <input type="text" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddManual()} placeholder="Thema (z.B. Guilty Pleasure)" style={{ fontSize: 13, marginBottom: 8 }} />
+            <input type="text" value={newDesc} onChange={e => setNewDesc(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddManual()} placeholder="Beschreibung (optional)" style={{ fontSize: 13, marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select value={insertAt} onChange={e => setInsertAt(e.target.value)} style={{ flex: 1, fontSize: 13, padding: '8px 10px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif' }}>
+                <option value="end">Ans Ende</option>
+                <option value="0">An den Anfang</option>
+                {items.map((item, i) => <option key={i} value={i + 1}>Nach Position {i + 1} ({item.name})</option>)}
+              </select>
+              <button onClick={handleAddManual} disabled={!newName.trim()} className="btn btn-primary btn-sm" style={{ flexShrink: 0 }}>+ Hinzufügen</button>
+            </div>
           </div>
 
-          <button onClick={() => fileRef.current.click()} className="btn btn-primary btn-full" style={{ marginBottom: 10 }}>
-            📁 CSV oder JSON importieren
-          </button>
+          {/* Datei-Import */}
+          <button onClick={() => fileRef.current.click()} className="btn btn-ghost btn-full" style={{ marginBottom: 10 }}>📁 CSV oder JSON importieren</button>
           <input ref={fileRef} type="file" accept=".csv,.json" onChange={handleFileImport} style={{ display: 'none' }} />
-
           {importError && <div className="error-msg">{importError}</div>}
           {importCount !== null && (
             <div style={{ background: 'rgba(72,213,151,0.1)', border: '1px solid rgba(72,213,151,0.25)', borderRadius: 'var(--radius)', padding: '8px 14px', marginBottom: 10, fontSize: 13, color: 'var(--success)' }}>
@@ -195,56 +230,35 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
             </div>
           )}
 
-          {/* Item list */}
           {items.length > 0 ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div className="section-title" style={{ margin: 0 }}>
-                  {items.length} Kategorien · ~{items.length * 7} Tage
-                </div>
-                <button
-                  onClick={() => { if (window.confirm('Alle Kategorien entfernen?')) setItems([]) }}
-                  style={{ fontSize: 12, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                >
-                  Alle löschen
-                </button>
+                <div className="section-title" style={{ margin: 0 }}>{items.length} Kategorien · ~{items.length * 7} Tage</div>
+                <button onClick={() => { if (window.confirm('Alle Kategorien entfernen?')) setItems([]) }} style={{ fontSize: 12, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Alle löschen</button>
               </div>
-
-              <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 16 }}>
+              <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 16 }}>
                 {items.map((item, i) => (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    background: 'var(--surface3)', borderRadius: 8,
-                    padding: '8px 10px', border: '1px solid var(--border2)',
-                  }}>
-                    {/* Position number */}
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface3)', borderRadius: 8, padding: '8px 10px', border: '1px solid var(--border2)' }}>
                     <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)', width: 22, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
-
-                    {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
                       {item.description && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.description}</div>}
                     </div>
-
-                    {/* Move up/down */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
                       <button onClick={() => moveUp(i)} disabled={i === 0} style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--text-muted)' : 'var(--text-dim)', fontSize: 12, padding: '1px 4px', lineHeight: 1 }}>▲</button>
                       <button onClick={() => moveDown(i)} disabled={i === items.length - 1} style={{ background: 'none', border: 'none', cursor: i === items.length - 1 ? 'default' : 'pointer', color: i === items.length - 1 ? 'var(--text-muted)' : 'var(--text-dim)', fontSize: 12, padding: '1px 4px', lineHeight: 1 }}>▼</button>
                     </div>
-
-                    {/* Remove */}
                     <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 16, padding: '2px 4px', flexShrink: 0, lineHeight: 1, opacity: 0.7 }}>✕</button>
                   </div>
                 ))}
               </div>
-
               <button onClick={handleSave} className="btn btn-primary btn-full btn-lg" disabled={saving}>
                 {saving ? '…' : !group.currentRoundId ? '🚀 Speichern & erste Runde starten' : 'Warteschlange speichern'}
               </button>
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-dim)', fontSize: 13 }}>
-              Noch keine Kategorien — importiere eine CSV oder JSON Datei.
+            <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-dim)', fontSize: 13 }}>
+              Noch keine Kategorien — füge oben welche hinzu oder importiere eine Datei.
             </div>
           )}
         </div>
@@ -254,19 +268,76 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
 }
 
 
+// ─── Deadline Modal ───
+// Ermöglicht das direkte Verschieben der Deadlines der aktiven Runde
+function DeadlineModal({ round, onClose }) {
+  const toInputVal = (ts) => {
+    const d = ts?.toDate ? ts.toDate() : new Date(ts)
+    return d.toISOString().slice(0, 10) // yyyy-mm-dd
+  }
+  const [subVal, setSubVal] = useState(() => toInputVal(round.submissionDeadline))
+  const [voteVal, setVoteVal] = useState(() => toInputVal(round.votingDeadline))
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await updateDoc(doc(db, 'rounds', round.id), {
+        submissionDeadline: new Date(subVal + 'T00:00:00'),
+        votingDeadline: new Date(voteVal + 'T00:00:00'),
+      })
+      onClose()
+    } catch (err) { alert('Fehler: ' + err.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-handle" />
+        <div className="modal-header">
+          <h3 style={{ fontSize: 20 }}>📅 Deadlines anpassen</h3>
+          <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
+        </div>
+        <div className="modal-body">
+          <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16 }}>„{round.prompt}"</p>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
+              Einreichung endet
+            </label>
+            <input
+              type="date"
+              value={subVal}
+              onChange={e => setSubVal(e.target.value)}
+              style={{ fontSize: 14, padding: '10px 12px', background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif', width: '100%', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
+              Abstimmung endet
+            </label>
+            <input
+              type="date"
+              value={voteVal}
+              onChange={e => setVoteVal(e.target.value)}
+              style={{ fontSize: 14, padding: '10px 12px', background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif', width: '100%', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} className="btn btn-ghost btn-full">Abbrechen</button>
+            <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-full">{saving ? '…' : 'Speichern'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Skip Modal ───
 function SkipModal({ round, onClose, onConfirm }) {
-  const [weeksOffset, setWeeksOffset] = useState(0)
-
   const isSubmission = round.status === 'submission'
-
-  // Berechne Vorschau-Datum für gewählten Offset
-  const preview = (() => {
-    const { submissionDeadline, votingDeadline } = getCalendarDeadlines(weeksOffset)
-    const fmt = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
-    return { sub: fmt(submissionDeadline), vote: fmt(votingDeadline) }
-  })()
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -276,8 +347,6 @@ function SkipModal({ round, onClose, onConfirm }) {
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-
-          {/* Warnung */}
           <div style={{ background: 'rgba(240,96,96,0.1)', border: '1px solid rgba(240,96,96,0.3)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#F06060', marginBottom: 4 }}>
               ⚠️ {isSubmission ? 'Einreichung wirklich überspringen?' : 'Abstimmung wirklich beenden?'}
@@ -285,45 +354,13 @@ function SkipModal({ round, onClose, onConfirm }) {
             <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>
               {isSubmission
                 ? 'Die Einreichungsphase wird sofort beendet und die Abstimmung beginnt. Songs die noch nicht eingereicht wurden können nicht mehr nachgereicht werden.'
-                : 'Die Abstimmung wird sofort beendet und die Ergebnisse werden veröffentlicht. Stimmen die noch nicht abgegeben wurden gehen verloren.'}
+                : 'Die Abstimmung wird sofort beendet und die Ergebnisse werden veröffentlicht. Nicht abgegebene Stimmen gehen verloren.'}
             </div>
           </div>
-
-          {/* Wochen-Auswahl — nur relevant wenn nächste Runde startet (beim Voting-Skip) */}
-          {!isSubmission && (
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
-                Nächste Runde starten in
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {[0, 1, 2, 3].map(offset => {
-                  const { submissionDeadline, votingDeadline } = getCalendarDeadlines(offset)
-                  const fmt = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
-                  const label = offset === 0 ? 'Diese Woche' : offset === 1 ? 'Nächste Woche' : `In ${offset} Wochen`
-                  return (
-                    <label key={offset} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: weeksOffset === offset ? 'rgba(124,106,245,0.12)' : 'var(--surface3)', border: `1px solid ${weeksOffset === offset ? 'rgba(124,106,245,0.4)' : 'var(--border2)'}`, borderRadius: 8, padding: '10px 14px' }}>
-                      <input type="radio" name="week" checked={weeksOffset === offset} onChange={() => setWeeksOffset(offset)} style={{ accentColor: 'var(--accent)' }} />
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF' }}>{label}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
-                          Einreichung bis {fmt(submissionDeadline)} · Ergebnisse {fmt(votingDeadline)}
-                        </div>
-                      </div>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={onClose} className="btn btn-ghost btn-full">Abbrechen</button>
-            <button
-              onClick={() => onConfirm(weeksOffset)}
-              className="btn btn-full"
-              style={{ background: '#F06060', color: '#fff', border: 'none' }}
-            >
-              {isSubmission ? 'Ja, überspringen' : 'Beenden & nächste Runde'}
+            <button onClick={onConfirm} className="btn btn-full" style={{ background: '#F06060', color: '#fff', border: 'none' }}>
+              {isSubmission ? 'Ja, überspringen' : 'Ja, beenden'}
             </button>
           </div>
         </div>
@@ -489,12 +526,12 @@ export default function GroupPage() {
     check()
   }, [rounds, group])
 
-  const autoStartNext = async (finishedRound, weeksOffset = 0) => {
+  const autoStartNext = async (finishedRound) => {
     const groupSnap = await getDoc(doc(db, 'groups', groupId))
     const queue = (groupSnap.data()?.categoryQueue || []).map(toItem)
     if (!queue.length) return
     const next = queue[0]
-    const { submissionDeadline, votingDeadline } = getCalendarDeadlines(weeksOffset)
+    const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
     const roundRef = await addDoc(collection(db, 'rounds'), {
       groupId,
       prompt: next.name,
@@ -552,13 +589,14 @@ export default function GroupPage() {
   }
 
   const [skipRound, setSkipRound] = useState(null)
+  const [deadlineRound, setDeadlineRound] = useState(null)
 
   const handleSkip = (round) => {
     if (!isAdmin) return
     setSkipRound(round)
   }
 
-  const handleSkipConfirm = async (weeksOffset) => {
+  const handleSkipConfirm = async () => {
     const round = skipRound
     setSkipRound(null)
     if (!round) return
@@ -566,7 +604,7 @@ export default function GroupPage() {
       await updateDoc(doc(db, 'rounds', round.id), { status: 'voting' })
     } else if (round.status === 'voting') {
       await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
-      await autoStartNext(round, weeksOffset)
+      await autoStartNext(round)
     }
   }
 
@@ -746,8 +784,18 @@ export default function GroupPage() {
                     </div>
                     <h3 style={{ fontSize: 20, marginBottom: round.description ? 4 : 8 }}>{round.prompt}</h3>
                     {round.description && <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 8, fontStyle: 'italic' }}>{round.description}</p>}
-                    {round.status === 'submission' && <p style={{ fontSize: 12, color: 'var(--text-dim)' }}>Einreichung: {formatDeadline(round.submissionDeadline)}</p>}
-                    {round.status === 'voting'     && <p style={{ fontSize: 12, color: 'var(--accent2)' }}>Abstimmung: {formatDeadline(round.votingDeadline)}</p>}
+                    {round.status === 'submission' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0 }}>Einreichung: {formatDeadline(round.submissionDeadline)}</p>
+                        {isAdmin && <button onClick={e => { e.stopPropagation(); setDeadlineRound(round) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '0 2px', lineHeight: 1 }} title="Datum anpassen">✏️</button>}
+                      </div>
+                    )}
+                    {round.status === 'voting' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <p style={{ fontSize: 12, color: 'var(--accent2)', margin: 0 }}>Abstimmung: {formatDeadline(round.votingDeadline)}</p>
+                        {isAdmin && <button onClick={e => { e.stopPropagation(); setDeadlineRound(round) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '0 2px', lineHeight: 1 }} title="Datum anpassen">✏️</button>}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9,18 15,12 9,6"/></svg>
@@ -842,6 +890,7 @@ export default function GroupPage() {
       {modal === 'queue'  && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} currentUserId={user.uid} />}
       {modal === 'invite' && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
       {skipRound && <SkipModal round={skipRound} onClose={() => setSkipRound(null)} onConfirm={handleSkipConfirm} />}
+      {deadlineRound && <DeadlineModal round={deadlineRound} onClose={() => setDeadlineRound(null)} />}
     </div>
   )
 }

@@ -28,40 +28,28 @@ function toItem(raw) {
 }
 
 // ─── Kalenderbasierte Deadlines ───
-// Einreichung: beginnt Montag 00:00, endet Samstag 00:00 (dieselbe Woche)
-// Abstimmung: beginnt Samstag 00:00, endet nächsten Montag 00:00
-//
-// Gibt { submissionDeadline, votingDeadline } zurück basierend auf dem aktuellen Wochentag:
-// - Mo–Fr: Einreichung bis Sa 00:00, Abstimmung bis Mo 00:00 der Folgewoche
-// - Sa–So: startet in der nächsten Woche (nächster Montag 00:00 für Einreichung)
-function getCalendarDeadlines() {
+// weeksOffset=0 → diese Woche, 1 → nächste Woche, usw.
+// Basis ist immer der Montag der AKTUELLEN Woche.
+function getCalendarDeadlines(weeksOffset = 0) {
   const now = new Date()
-  const dayOfWeek = now.getDay() // 0=So, 1=Mo, 2=Di, 3=Mi, 4=Do, 5=Fr, 6=Sa
+  const dayOfWeek = now.getDay() // 0=So, 1=Mo, ..., 6=Sa
 
-  // Nächsten Montag 00:00 berechnen (oder diesen Montag, falls heute Montag)
-  const nextMonday = new Date(now)
-  nextMonday.setHours(0, 0, 0, 0)
-  // Wie viele Tage bis zum nächsten Montag?
-  const daysUntilMonday = dayOfWeek === 1 ? 0 : (8 - dayOfWeek) % 7 || 7
-  nextMonday.setDate(now.getDate() + daysUntilMonday)
+  // Montag dieser Woche (rückwärts rechnen)
+  const thisMonday = new Date(now)
+  thisMonday.setHours(0, 0, 0, 0)
+  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+  thisMonday.setDate(now.getDate() - daysSinceMonday)
 
-  // Samstag dieser Runde (5 Tage nach Montag)
-  const saturdayOfRound = new Date(nextMonday)
-  saturdayOfRound.setDate(nextMonday.getDate() + 5) // Mo + 5 = Sa
+  // Offset anwenden
+  thisMonday.setDate(thisMonday.getDate() + weeksOffset * 7)
 
-  // Montag der Folgewoche (Ende der Abstimmung)
-  const mondayAfterVoting = new Date(nextMonday)
-  mondayAfterVoting.setDate(nextMonday.getDate() + 7) // Mo + 7 = nächster Mo
+  // Samstag = Montag + 5
+  const saturdayOfRound = new Date(thisMonday)
+  saturdayOfRound.setDate(thisMonday.getDate() + 5)
 
-  // Falls heute Samstag oder Sonntag: nächste Runde erst ab übernächstem Montag
-  if (dayOfWeek === 6 || dayOfWeek === 0) {
-    // Nächster Montag ist bereits nextMonday (übernächste Woche),
-    // Samstag und Montag danach werden korrekt berechnet
-    return {
-      submissionDeadline: saturdayOfRound,
-      votingDeadline: mondayAfterVoting,
-    }
-  }
+  // Montag danach = Montag + 7
+  const mondayAfterVoting = new Date(thisMonday)
+  mondayAfterVoting.setDate(thisMonday.getDate() + 7)
 
   return {
     submissionDeadline: saturdayOfRound,

@@ -269,26 +269,20 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
 
 
 // ─── Deadline Modal ───
-// Ermöglicht das direkte Verschieben der Deadlines der aktiven Runde
 function DeadlineModal({ round, onClose }) {
-  const toInputVal = (ts) => {
-    const d = ts?.toDate ? ts.toDate() : new Date(ts)
-    return d.toISOString().slice(0, 10) // yyyy-mm-dd
-  }
-  const [subVal, setSubVal] = useState(() => toInputVal(round.submissionDeadline))
-  const [voteVal, setVoteVal] = useState(() => toInputVal(round.votingDeadline))
+  const [weeksOffset, setWeeksOffset] = useState(0)
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'rounds', round.id), {
-        submissionDeadline: new Date(subVal + 'T00:00:00'),
-        votingDeadline: new Date(voteVal + 'T00:00:00'),
-      })
+      const { submissionDeadline, votingDeadline } = getCalendarDeadlines(weeksOffset)
+      await updateDoc(doc(db, 'rounds', round.id), { submissionDeadline, votingDeadline })
       onClose()
     } catch (err) { alert('Fehler: ' + err.message) } finally { setSaving(false) }
   }
+
+  const fmt = d => d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -300,31 +294,23 @@ function DeadlineModal({ round, onClose }) {
         </div>
         <div className="modal-body">
           <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16 }}>„{round.prompt}"</p>
-
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
-              Einreichung endet
-            </label>
-            <input
-              type="date"
-              value={subVal}
-              onChange={e => setSubVal(e.target.value)}
-              style={{ fontSize: 14, padding: '10px 12px', background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif', width: '100%', boxSizing: 'border-box' }}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
+            {[0, 1, 2, 3, 4].map(offset => {
+              const { submissionDeadline, votingDeadline } = getCalendarDeadlines(offset)
+              const label = offset === 0 ? 'Diese Woche' : offset === 1 ? 'Nächste Woche' : `In ${offset} Wochen`
+              return (
+                <label key={offset} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: weeksOffset === offset ? 'rgba(124,106,245,0.12)' : 'var(--surface3)', border: `1px solid ${weeksOffset === offset ? 'rgba(124,106,245,0.4)' : 'var(--border2)'}`, borderRadius: 8, padding: '10px 12px' }}>
+                  <input type="radio" name="deadlineWeek" checked={weeksOffset === offset} onChange={() => setWeeksOffset(offset)} style={{ accentColor: 'var(--accent)' }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF' }}>{label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
+                      Einreichung bis Sa, {fmt(submissionDeadline)} · Abstimmung bis Mo, {fmt(votingDeadline)}
+                    </div>
+                  </div>
+                </label>
+              )
+            })}
           </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
-              Abstimmung endet
-            </label>
-            <input
-              type="date"
-              value={voteVal}
-              onChange={e => setVoteVal(e.target.value)}
-              style={{ fontSize: 14, padding: '10px 12px', background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'DM Sans, sans-serif', width: '100%', boxSizing: 'border-box' }}
-            />
-          </div>
-
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={onClose} className="btn btn-ghost btn-full">Abbrechen</button>
             <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-full">{saving ? '…' : 'Speichern'}</button>

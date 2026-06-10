@@ -1,5 +1,12 @@
 const YT_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY
 
+// YouTube API gibt Titel als HTML-encoded zurück (z.B. &amp; statt &)
+function decodeHtml(str) {
+  const txt = document.createElement('textarea')
+  txt.innerHTML = str
+  return txt.value
+}
+
 // ─── Search ───
 export async function searchSongs(query) {
   if (!query || query.trim().length < 3) return []
@@ -23,8 +30,8 @@ export async function searchSongs(query) {
 
   return (data.items || []).map(item => ({
     id: item.id.videoId,
-    title: item.snippet.title,
-    channelTitle: item.snippet.channelTitle,
+    title: decodeHtml(item.snippet.title),
+    channelTitle: decodeHtml(item.snippet.channelTitle),
     thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
     publishedAt: item.snippet.publishedAt,
     videoUrl: `https://www.youtube.com/watch?v=${item.id.videoId}`,

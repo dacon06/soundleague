@@ -53,7 +53,7 @@ export default function InstallBanner() {
   return (
     <div style={{
       position: 'fixed',
-      bottom: 'calc(var(--nav-height) + 12px)',
+      bottom: 'calc(env(safe-area-inset-bottom) + 16px)',
       left: 12, right: 12,
       zIndex: 150,
       background: 'var(--surface)',

@@ -6,6 +6,7 @@ import SongSearch from '../components/SongSearch'
 import UserAvatar from '../components/UserAvatar'
 import YouTubePlayer from '../components/YouTubePlayer'
 import { createYouTubePlaylistUrl } from '../youtube'
+import { maybeAdvanceRound, formatRunning } from '../rounds'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   addDoc, updateDoc, serverTimestamp, getDocs, deleteDoc
@@ -82,6 +83,8 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
         submissionComment: comment,
         createdAt: serverTimestamp(),
       })
+      // Alle eingereicht? → automatisch zur Abstimmung
+      await maybeAdvanceRound(round, group)
     } catch (err) {
       alert('Fehler: ' + err.message)
     } finally {
@@ -107,7 +110,7 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
         <div className="progress-bar">
           <div className="progress-fill" style={{ width: `${totalMembers ? (submissions.length / totalMembers) * 100 : 0}%` }} />
         </div>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Songs bleiben bis zur Abstimmung anonym.</p>
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Songs bleiben bis zur Abstimmung anonym. Die Abstimmung startet automatisch, sobald alle eingereicht haben.</p>
       </div>
 
       {mySubmission ? (
@@ -194,7 +197,9 @@ function VotingPhase({ round, group, groupId, roundId }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [voterCount, setVoterCount] = useState(0)
 
+  const totalMembers = group?.members?.length || 0
   const totalVotes = group?.votesPerMember || 3
   const usedVotes = Object.values(myVotes).reduce((a, b) => a + b, 0)
   const remainingVotes = totalVotes - usedVotes
@@ -202,6 +207,11 @@ function VotingPhase({ round, group, groupId, roundId }) {
   useEffect(() => {
     const q = query(collection(db, 'submissions'), where('roundId', '==', roundId))
     return onSnapshot(q, snap => { setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) })
+  }, [roundId])
+
+  useEffect(() => {
+    const q = query(collection(db, 'votes'), where('roundId', '==', roundId))
+    return onSnapshot(q, snap => setVoterCount(new Set(snap.docs.map(d => d.data().voterId)).size))
   }, [roundId])
 
   useEffect(() => {
@@ -252,6 +262,8 @@ function VotingPhase({ round, group, groupId, roundId }) {
       const snap = await getDocs(query(collection(db, 'votes'), where('roundId', '==', roundId), where('voterId', '==', user.uid)))
       setExistingVotes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setSaved(true)
+      // Alle abgestimmt? → automatisch zu den Ergebnissen
+      await maybeAdvanceRound(round, group)
     } catch (err) { alert('Fehler: ' + err.message) } finally { setSaving(false) }
   }
 
@@ -274,6 +286,11 @@ function VotingPhase({ round, group, groupId, roundId }) {
         </div>
         <div className="progress-bar"><div className="progress-fill" style={{ width: `${(usedVotes / totalVotes) * 100}%`, background: 'var(--accent2)' }} /></div>
         <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Verteile deine {totalVotes} Stimmen. Mehrere auf einen Song möglich. Du kannst bei jedem Song kommentieren.</p>
+        {totalMembers > 0 && (
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            {voterCount}/{totalMembers} haben abgestimmt · Ergebnisse erscheinen automatisch, sobald alle abgestimmt haben.
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -316,7 +333,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
         )}
       </div>
 
-      <div style={{ position: 'sticky', bottom: 'calc(var(--nav-height) + 8px)', marginTop: 20 }}>
+      <div style={{ position: 'sticky', bottom: 'calc(env(safe-area-inset-bottom) + 12px)', marginTop: 20 }}>
         <button onClick={handleSave} className={`btn btn-full btn-lg ${saved ? 'btn-secondary' : 'btn-primary'}`} disabled={saving || !hasAnyInput} style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }}>
           {saving ? '…' : saved ? '✓ Gespeichert' : usedVotes > 0 ? `Stimmen abgeben (${usedVotes}/${totalVotes})` : 'Kommentare speichern'}
         </button>
@@ -419,26 +436,21 @@ export default function RoundPage() {
     getDoc(doc(db, 'groups', groupId)).then(snap => { if (snap.exists()) setGroup({ id: snap.id, ...snap.data() }) })
   }, [groupId])
 
+  // Falls beim Öffnen bereits alle eingereicht/abgestimmt haben → weiterschalten
   useEffect(() => {
-    if (!round) return
-    const now = new Date()
-    if (round.status === 'submission' && round.submissionDeadline?.toDate?.() < now)
-      updateDoc(doc(db, 'rounds', roundId), { status: 'voting' })
-    else if (round.status === 'voting' && round.votingDeadline?.toDate?.() < now)
-      updateDoc(doc(db, 'rounds', roundId), { status: 'results' })
-  }, [round, roundId])
+    if (round && group) maybeAdvanceRound(round, group)
+  }, [round, group])
 
   const statusInfo = {
-    submission: { label: 'Einreichung läuft', badge: 'badge-green', deadline: round?.submissionDeadline },
-    voting:     { label: 'Abstimmung läuft',  badge: 'badge-amber', deadline: round?.votingDeadline },
-    results:    { label: 'Runde beendet',      badge: 'badge-dim',   deadline: null },
+    submission: { label: 'Einreichung läuft', badge: 'badge-green' },
+    voting:     { label: 'Abstimmung läuft',  badge: 'badge-amber' },
+    results:    { label: 'Runde beendet',      badge: 'badge-dim'   },
   }
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
   if (!round) return <div className="page"><p>Runde nicht gefunden.</p></div>
 
   const info = statusInfo[round.status] || {}
-  const formatDeadline = ts => ts?.toDate ? ts.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 
   return (
     <div className="page">
@@ -446,7 +458,7 @@ export default function RoundPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span className={`badge ${info.badge}`}>{info.label}</span>
-          {info.deadline && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>bis {formatDeadline(info.deadline)}</span>}
+          {round.status !== 'results' && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formatRunning(round)}</span>}
         </div>
         <h1 style={{ fontSize: 32, lineHeight: 1.1 }}>{round.prompt}</h1>
         {round.description && <p style={{ fontSize: 15, color: 'var(--text-dim)', marginTop: 8, fontStyle: 'italic' }}>{round.description}</p>}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useUserEmoji } from '../hooks/useUserEmoji'
 import EmojiPickerModal from './EmojiPicker'
@@ -25,46 +25,52 @@ export default function Layout() {
 
   return (
     <div style={{ minHeight: '100dvh' }}>
+      <header className="top-bar">
+        <Link to="/" className="top-bar-brand">
+          <img src="/favicon.svg" alt="" width={26} height={26} />
+          <span>SoundLeague</span>
+        </Link>
+
+        <div className="top-bar-actions">
+          <button
+            className="top-bar-btn"
+            onClick={() => setShowEmojiPicker(true)}
+            title="Emoji ändern"
+            aria-label="Emoji ändern"
+          >
+            {emoji ? (
+              <span style={{ fontSize: 24, lineHeight: 1 }}>{emoji}</span>
+            ) : (
+              <div style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#000',
+                fontFamily: 'Fraunces, serif',
+              }}>
+                {initial}
+              </div>
+            )}
+          </button>
+
+          <button
+            className="top-bar-btn"
+            onClick={handleLogout}
+            title="Logout"
+            aria-label="Logout"
+          >
+            🚪
+          </button>
+        </div>
+      </header>
+
       <Outlet />
-
-      <nav className="bottom-nav">
-        <NavLink to="/" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <span style={{ fontSize: 22 }}>🏠</span>
-          Gruppen
-        </NavLink>
-
-        <button
-          className="nav-item"
-          style={{ border: 'none', cursor: 'pointer' }}
-          onClick={() => setShowEmojiPicker(true)}
-        >
-          {emoji ? (
-            <span style={{ fontSize: 26, lineHeight: 1 }}>{emoji}</span>
-          ) : (
-            <div style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 13,
-              fontWeight: 700,
-              color: '#000',
-              fontFamily: 'Fraunces, serif',
-            }}>
-              {initial}
-            </div>
-          )}
-          <span style={{ fontSize: 10 }}>{user?.displayName?.split(' ')[0] || 'Profil'}</span>
-        </button>
-
-        <button onClick={handleLogout} className="nav-item" style={{ border: 'none', cursor: 'pointer' }}>
-          <span style={{ fontSize: 22 }}>🚪</span>
-          Logout
-        </button>
-      </nav>
 
       <InstallBanner />
 

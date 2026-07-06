@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import UserAvatar from '../components/UserAvatar'
 import Chat from '../components/Chat'
+import { toItem, getCalendarDeadlines, autoStartNext, checkRoundCompletion, formatRunning } from '../rounds'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   orderBy, addDoc, updateDoc, serverTimestamp, getDocs,
@@ -22,40 +23,6 @@ function StatusBadge({ status }) {
   return <span className={`badge ${info.cls}`}>{info.label}</span>
 }
 
-function toItem(raw) {
-  if (typeof raw === 'string') return { name: raw, description: '' }
-  return { name: raw.name || '', description: raw.description || '' }
-}
-
-// ─── Kalenderbasierte Deadlines ───
-// weeksOffset=0 → diese Woche, 1 → nächste Woche, usw.
-// Basis ist immer der Montag der AKTUELLEN Woche.
-function getCalendarDeadlines(weeksOffset = 0) {
-  const now = new Date()
-  const dayOfWeek = now.getDay() // 0=So, 1=Mo, ..., 6=Sa
-
-  // Montag dieser Woche (rückwärts rechnen)
-  const thisMonday = new Date(now)
-  thisMonday.setHours(0, 0, 0, 0)
-  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-  thisMonday.setDate(now.getDate() - daysSinceMonday)
-
-  // Offset anwenden
-  thisMonday.setDate(thisMonday.getDate() + weeksOffset * 7)
-
-  // Samstag = Montag + 5
-  const saturdayOfRound = new Date(thisMonday)
-  saturdayOfRound.setDate(thisMonday.getDate() + 5)
-
-  // Montag danach = Montag + 7
-  const mondayAfterVoting = new Date(thisMonday)
-  mondayAfterVoting.setDate(thisMonday.getDate() + 7)
-
-  return {
-    submissionDeadline: saturdayOfRound,
-    votingDeadline: mondayAfterVoting,
-  }
-}
 
 // ─── Queue Modal ───
 function QueueModal({ group, onClose, onStarted, currentUserId }) {
@@ -256,59 +223,6 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
 }
 
 
-// ─── Deadline Modal ───
-function DeadlineModal({ round, onClose }) {
-  const [weeksOffset, setWeeksOffset] = useState(0)
-  const [saving, setSaving] = useState(false)
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const { submissionDeadline, votingDeadline } = getCalendarDeadlines(weeksOffset)
-      await updateDoc(doc(db, 'rounds', round.id), { submissionDeadline, votingDeadline })
-      onClose()
-    } catch (err) { alert('Fehler: ' + err.message) } finally { setSaving(false) }
-  }
-
-  const fmt = d => d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-handle" />
-        <div className="modal-header">
-          <h3 style={{ fontSize: 20 }}>📅 Deadlines anpassen</h3>
-          <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
-        </div>
-        <div className="modal-body">
-          <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16 }}>„{round.prompt}"</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-            {[0, 1, 2, 3, 4].map(offset => {
-              const { submissionDeadline, votingDeadline } = getCalendarDeadlines(offset)
-              const label = offset === 0 ? 'Diese Woche' : offset === 1 ? 'Nächste Woche' : `In ${offset} Wochen`
-              return (
-                <label key={offset} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: weeksOffset === offset ? 'rgba(124,106,245,0.12)' : 'var(--surface3)', border: `1px solid ${weeksOffset === offset ? 'rgba(124,106,245,0.4)' : 'var(--border2)'}`, borderRadius: 8, padding: '10px 12px' }}>
-                  <input type="radio" name="deadlineWeek" checked={weeksOffset === offset} onChange={() => setWeeksOffset(offset)} style={{ accentColor: 'var(--accent)' }} />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF' }}>{label}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
-                      Einreichung bis Sa, {fmt(submissionDeadline)} · Abstimmung bis Mo, {fmt(votingDeadline)}
-                    </div>
-                  </div>
-                </label>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} className="btn btn-ghost btn-full">Abbrechen</button>
-            <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-full">{saving ? '…' : 'Speichern'}</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── Skip Modal ───
 function SkipModal({ round, onClose, onConfirm }) {
   const isSubmission = round.status === 'submission'
@@ -438,6 +352,7 @@ export default function GroupPage() {
   const [modal, setModal] = useState(null)
   const [leaderboard, setLeaderboard] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
+  const [roundProgress, setRoundProgress] = useState({})
   const lastSeenRef = useRef(localStorage.getItem(`chat_seen_${groupId}`) || '0')
 
   useEffect(() => {
@@ -483,48 +398,23 @@ export default function GroupPage() {
     return unsub
   }, [groupId, tab, user.uid])
 
-  // Auto-advance + auto-start next
+  // Fortschritt laden + weiterschalten, sobald alle eingereicht / abgestimmt haben
   useEffect(() => {
     if (!rounds.length || !group) return
+    const memberCount = group.members?.length || 0
+    let cancelled = false
     const check = async () => {
-      const now = new Date()
+      const progress = {}
       for (const round of rounds) {
-        if (round.status === 'submission' && round.submissionDeadline?.toDate?.() < now)
-          await updateDoc(doc(db, 'rounds', round.id), { status: 'voting' })
-        else if (round.status === 'voting' && round.votingDeadline?.toDate?.() < now) {
-          await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
-          await autoStartNext(round)
+        if (round.status === 'submission' || round.status === 'voting') {
+          progress[round.id] = await checkRoundCompletion(round, memberCount)
         }
       }
+      if (!cancelled) setRoundProgress(progress)
     }
     check()
+    return () => { cancelled = true }
   }, [rounds, group])
-
-  const autoStartNext = async (finishedRound) => {
-    const groupSnap = await getDoc(doc(db, 'groups', groupId))
-    const queue = (groupSnap.data()?.categoryQueue || []).map(toItem)
-    if (!queue.length) return
-    const next = queue[0]
-    const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
-    const roundRef = await addDoc(collection(db, 'rounds'), {
-      groupId,
-      prompt: next.name,
-      description: next.description || '',
-      status: 'submission',
-      submissionDeadline,
-      votingDeadline,
-      playlistId: null,
-      createdBy: finishedRound.createdBy,
-      createdAt: serverTimestamp(),
-      submissionNotificationSent: false,
-      votingNotificationSent: false,
-      fromQueue: true,
-    })
-    await updateDoc(doc(db, 'groups', groupId), {
-      currentRoundId: roundRef.id,
-      categoryQueue: queue.slice(1),
-    })
-  }
 
   // Leaderboard
   useEffect(() => {
@@ -550,20 +440,7 @@ export default function GroupPage() {
   const isAdmin = group?.createdBy === user?.uid
   const queueLength = (group?.categoryQueue || []).length
 
-  const formatDeadline = (ts) => {
-    if (!ts?.toDate) return ''
-    const target = ts.toDate()
-    const diff = target - new Date()
-    if (diff < 0) return 'Abgelaufen'
-    const days = Math.floor(diff / 86_400_000)
-    const hours = Math.floor((diff % 86_400_000) / 3_600_000)
-    const dateStr = target.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
-    if (days === 0) return `Heute bis ${target.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} (noch ${hours}h)`
-    return `${dateStr} (noch ${days}d ${hours}h)`
-  }
-
   const [skipRound, setSkipRound] = useState(null)
-  const [deadlineRound, setDeadlineRound] = useState(null)
 
   const handleSkip = (round) => {
     if (!isAdmin) return
@@ -575,7 +452,7 @@ export default function GroupPage() {
     setSkipRound(null)
     if (!round) return
     if (round.status === 'submission') {
-      await updateDoc(doc(db, 'rounds', round.id), { status: 'voting' })
+      await updateDoc(doc(db, 'rounds', round.id), { status: 'voting', votingStartedAt: serverTimestamp() })
     } else if (round.status === 'voting') {
       await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
       await autoStartNext(round)
@@ -759,16 +636,16 @@ export default function GroupPage() {
                     <h3 style={{ fontSize: 20, marginBottom: round.description ? 4 : 8 }}>{round.prompt}</h3>
                     {round.description && <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 8, fontStyle: 'italic' }}>{round.description}</p>}
                     {round.status === 'submission' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0 }}>Einreichung: {formatDeadline(round.submissionDeadline)}</p>
-                        {isAdmin && <button onClick={e => { e.stopPropagation(); setDeadlineRound(round) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '0 2px', lineHeight: 1 }} title="Datum anpassen">✏️</button>}
-                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0 }}>
+                        Einreichung · {formatRunning(round)}
+                        {roundProgress[round.id]?.total > 0 && ` · ${roundProgress[round.id].done}/${roundProgress[round.id].total} eingereicht`}
+                      </p>
                     )}
                     {round.status === 'voting' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <p style={{ fontSize: 12, color: 'var(--accent2)', margin: 0 }}>Abstimmung: {formatDeadline(round.votingDeadline)}</p>
-                        {isAdmin && <button onClick={e => { e.stopPropagation(); setDeadlineRound(round) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', padding: '0 2px', lineHeight: 1 }} title="Datum anpassen">✏️</button>}
-                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--accent2)', margin: 0 }}>
+                        Abstimmung · {formatRunning(round)}
+                        {roundProgress[round.id]?.total > 0 && ` · ${roundProgress[round.id].done}/${roundProgress[round.id].total} abgestimmt`}
+                      </p>
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
@@ -864,7 +741,6 @@ export default function GroupPage() {
       {modal === 'queue'  && <QueueModal group={group} onClose={() => setModal(null)} onStarted={id => { setModal(null); navigate(`/group/${groupId}/round/${id}`) }} currentUserId={user.uid} />}
       {modal === 'invite' && <InviteModal code={group.inviteCode} onClose={() => setModal(null)} />}
       {skipRound && <SkipModal round={skipRound} onClose={() => setSkipRound(null)} onConfirm={handleSkipConfirm} />}
-      {deadlineRound && <DeadlineModal round={deadlineRound} onClose={() => setDeadlineRound(null)} />}
     </div>
   )
 }

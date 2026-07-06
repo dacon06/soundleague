@@ -198,9 +198,9 @@ export default function Home() {
       {/* Header with emoji avatar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, paddingTop: 8 }}>
         <div>
-          <h1 style={{ fontSize: 28 }}>Soundleague</h1>
+          <h1 style={{ fontSize: 28 }}>Hey, {firstName} 👋</h1>
           <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 2 }}>
-            Hey, {firstName} 👋
+            Deine Gruppen & Runden
           </p>
         </div>
         {/* Large emoji avatar — tap to change */}

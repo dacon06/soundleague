@@ -20,7 +20,7 @@ function loadYTApi() {
   })
 }
 
-export default function YouTubePlayer({ videoId, title }) {
+export default function YouTubePlayer({ videoId, compact = false, autoPlay = false }) {
   const containerRef = useRef(null)
   const playerRef = useRef(null)
   const intervalRef = useRef(null)
@@ -28,7 +28,9 @@ export default function YouTubePlayer({ videoId, title }) {
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
   const [ready, setReady] = useState(false)
-  const [dragging, setDragging] = useState(false)
+  // Während des Ziehens zeigt die Leiste die gezogene Position, nicht die des Players.
+  const [scrub, setScrub] = useState(null)
+  const draggingRef = useRef(false)
 
   useEffect(() => {
     if (!videoId) return
@@ -46,6 +48,8 @@ export default function YouTubePlayer({ videoId, title }) {
             playerRef.current = e.target
             setDuration(e.target.getDuration())
             setReady(true)
+            // Vorhören startet direkt; blockt der Browser das, bleibt der Play-Button da.
+            if (autoPlay) { try { e.target.playVideo() } catch { /* ignoriert */ } }
           },
           onStateChange: (e) => {
             const YT = window.YT.PlayerState
@@ -53,7 +57,7 @@ export default function YouTubePlayer({ videoId, title }) {
               setPlaying(true)
               setDuration(playerRef.current.getDuration())
               intervalRef.current = setInterval(() => {
-                if (playerRef.current && !dragging) {
+                if (playerRef.current && !draggingRef.current) {
                   setProgress(playerRef.current.getCurrentTime())
                 }
               }, 500)
@@ -86,13 +90,33 @@ export default function YouTubePlayer({ videoId, title }) {
     playing ? playerRef.current.pauseVideo() : playerRef.current.playVideo()
   }
 
-  const seek = (e) => {
-    if (!playerRef.current || !duration) return
+  // ─── Seekbar: tippen ODER ziehen ───
+  const ratioFromEvent = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / rect.width
-    const newTime = x * duration
-    playerRef.current.seekTo(newTime, true)
+    return Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+  }
+
+  const handlePointerDown = (e) => {
+    if (!playerRef.current || !duration) return
+    draggingRef.current = true
+    // Pointer einfangen: so kommen Move/Up auch an, wenn der Finger die Leiste verlässt.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    setScrub(ratioFromEvent(e))
+  }
+
+  const handlePointerMove = (e) => {
+    if (!draggingRef.current) return
+    setScrub(ratioFromEvent(e))
+  }
+
+  const handlePointerUp = (e) => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+    const newTime = ratioFromEvent(e) * duration
+    playerRef.current?.seekTo(newTime, true)
     setProgress(newTime)
+    setScrub(null)
   }
 
   const fmt = (s) => {
@@ -102,15 +126,17 @@ export default function YouTubePlayer({ videoId, title }) {
     return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
-  const pct = duration ? (progress / duration) * 100 : 0
+  const dragging = scrub !== null
+  const shownTime = dragging ? scrub * duration : progress
+  const pct = duration ? (shownTime / duration) * 100 : 0
 
   return (
     <div style={{
-      background: 'var(--surface2)',
-      border: '1px solid var(--border)',
+      background: compact ? 'transparent' : 'var(--surface2)',
+      border: compact ? 'none' : '1px solid var(--border)',
       borderRadius: 12,
-      padding: '10px 14px',
-      marginBottom: 10,
+      padding: compact ? '4px 0 0' : '10px 14px',
+      marginBottom: compact ? 0 : 10,
     }}>
       {/* Hidden YouTube player div */}
       <div ref={containerRef} style={{ display: 'none' }} />
@@ -149,27 +175,39 @@ export default function YouTubePlayer({ videoId, title }) {
 
         {/* Progress bar + time */}
         <div style={{ flex: 1 }}>
-          {/* Progress bar */}
+          {/* Progress bar — antippen oder ziehen. Der padding-Streifen vergrößert
+              die Trefferfläche, ohne die Leiste optisch dicker zu machen. */}
           <div
-            onClick={seek}
-            style={{ height: 4, background: 'var(--border)', borderRadius: 2, cursor: 'pointer', marginBottom: 4, position: 'relative' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            style={{
+              padding: '9px 0',
+              margin: '-9px 0 -5px',
+              cursor: ready ? 'pointer' : 'default',
+              touchAction: 'none', // sonst scrollt die Seite statt zu ziehen
+            }}
           >
-            <div style={{ height: '100%', width: `${pct}%`, background: '#FF0000', borderRadius: 2, transition: dragging ? 'none' : 'width 0.5s linear' }} />
-            <div style={{
-              position: 'absolute',
-              left: `${pct}%`,
-              top: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: '#FF0000',
-              opacity: playing || progress > 0 ? 1 : 0,
-            }} />
+            <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, position: 'relative' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: '#FF0000', borderRadius: 2, transition: dragging ? 'none' : 'width 0.5s linear' }} />
+              <div style={{
+                position: 'absolute',
+                left: `${pct}%`,
+                top: '50%',
+                transform: `translate(-50%, -50%) scale(${dragging ? 1.5 : 1})`,
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: '#FF0000',
+                opacity: dragging || playing || progress > 0 ? 1 : 0,
+                transition: dragging ? 'none' : 'transform 0.15s, left 0.5s linear',
+              }} />
+            </div>
           </div>
           {/* Time */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Space Mono' }}>
-            <span>{fmt(progress)}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Space Mono', marginTop: 4 }}>
+            <span>{fmt(shownTime)}</span>
             <span>{fmt(duration)}</span>
           </div>
         </div>

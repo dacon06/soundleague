@@ -1,15 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import UserAvatar from '../components/UserAvatar'
 import Chat from '../components/Chat'
-import { toItem, getCalendarDeadlines, autoStartNext, checkRoundCompletion, formatRunning } from '../rounds'
+import { toItem, createRound, advanceToVoting, finishRound, checkRoundCompletion, formatRunning } from '../rounds'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
-  orderBy, addDoc, updateDoc, serverTimestamp, getDocs,
-  arrayRemove, deleteField, deleteDoc, writeBatch,
+  orderBy, updateDoc, getDocs,
+  arrayRemove, deleteField, writeBatch,
   query as fsQuery,
 } from 'firebase/firestore'
 
@@ -122,28 +122,9 @@ function QueueModal({ group, onClose, onStarted, currentUserId }) {
       }
     }
     if (shouldAutoStart) {
-      const first = clean[0]
-      const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
-      const roundRef = await addDoc(collection(db, 'rounds'), {
-        groupId: group.id,
-        prompt: first.name,
-        description: first.description || '',
-        status: 'submission',
-        submissionDeadline,
-        votingDeadline,
-        playlistId: null,
-        createdBy: currentUserId,
-        createdAt: serverTimestamp(),
-        submissionNotificationSent: false,
-        votingNotificationSent: false,
-        fromQueue: true,
-      })
-      await updateDoc(doc(db, 'groups', group.id), {
-        currentRoundId: roundRef.id,
-        categoryQueue: clean.slice(1),
-      })
+      const roundId = await createRound(group.id, clean[0], currentUserId, clean.slice(1))
       setSaving(false)
-      onStarted(roundRef.id)
+      onStarted(roundId)
       return
     }
     await updateDoc(doc(db, 'groups', group.id), { categoryQueue: clean })
@@ -282,7 +263,7 @@ function InviteModal({ code, onClose }) {
 
 // ─── Notification Banner ───
 function NotificationBanner() {
-  const { supported, permission, subscribe } = usePushNotifications()
+  const { supported, subscribe } = usePushNotifications()
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [localPerm, setLocalPerm] = useState(() => {
@@ -329,7 +310,7 @@ function NotificationBanner() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4FF', marginBottom: 2 }}>🔔 Benachrichtigungen aktivieren</div>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>Erinnerung 24h vor Ende der Einreichung & Abstimmung</div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>Neue Runde, Start der Abstimmung & Erinnerungen</div>
         </div>
         <button onClick={handleEnable} className="btn btn-primary btn-sm" disabled={loading} style={{ flexShrink: 0 }}>
           {loading ? '…' : 'Aktivieren'}
@@ -377,12 +358,6 @@ export default function GroupPage() {
       setUnreadCount(0)
       return
     }
-    const lastSeen = Number(lastSeenRef.current || '0')
-    const q = query(
-      collection(db, 'groups', groupId, 'messages'),
-      orderBy('createdAt', 'desc'),
-      where('createdAt', '>', new Date(lastSeen))
-    )
     // Use onSnapshot to count new messages
     const unsub = onSnapshot(
       collection(db, 'groups', groupId, 'messages'),
@@ -451,12 +426,8 @@ export default function GroupPage() {
     const round = skipRound
     setSkipRound(null)
     if (!round) return
-    if (round.status === 'submission') {
-      await updateDoc(doc(db, 'rounds', round.id), { status: 'voting', votingStartedAt: serverTimestamp() })
-    } else if (round.status === 'voting') {
-      await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
-      await autoStartNext(round)
-    }
+    if (round.status === 'submission') await advanceToVoting(round)
+    else if (round.status === 'voting') await finishRound(round)
   }
 
   const handleDeleteRound = async (roundId) => {

@@ -1,51 +1,41 @@
 // api/send-notifications.js
-// Vercel Serverless Function - runs every hour via Vercel Cron
-// Configure in vercel.json: { "crons": [{ "path": "/api/send-notifications", "schedule": "0 * * * *" }] }
+// Vercel Cron (siehe vercel.json) — Erinnerungen für laufende Runden.
+//
+// Runden schalten inzwischen über Vollständigkeit weiter (alle eingereicht / alle
+// abgestimmt), die Deadlines sind nur noch Orientierung. Dieser Job erinnert deshalb
+// gezielt die Mitglieder, die noch NICHT dran waren, sobald weniger als 24h bis zur
+// Deadline übrig sind — pro Runde und Phase genau einmal.
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
-import webpush from 'web-push'
+import { getDb, getSubscriptionsForUsers, sendToSubscriptions } from './_push.js'
 
-function getDb() {
-  if (!getApps().length) {
-    initializeApp({
-      credential: cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    })
-  }
-  return getFirestore()
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function toMillis(value) {
+  if (!value) return null
+  if (typeof value.toMillis === 'function') return value.toMillis()
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return value
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
 }
 
-webpush.setVapidDetails(
-  'mailto:' + (process.env.VAPID_EMAIL || 'admin@soundleague.app'),
-  process.env.VITE_VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-)
-
-const WINDOW_MS = 60 * 60 * 1000
-const NOTIFY_BEFORE_MS = 24 * 60 * 60 * 1000
-
-async function sendPush(subscription, payload) {
-  try {
-    await webpush.sendNotification(
-      { endpoint: subscription.endpoint, keys: subscription.keys },
-      JSON.stringify(payload)
-    )
-    return true
-  } catch (err) {
-    if (err.statusCode === 410) return 'expired'
-    console.error('Push error:', err.message)
-    return false
-  }
+// uids der Mitglieder, die in dieser Phase noch nichts gemacht haben
+async function pendingMembers(db, round, members) {
+  const isVoting = round.status === 'voting'
+  const snap = await db
+    .collection(isVoting ? 'votes' : 'submissions')
+    .where('roundId', '==', round.id)
+    .get()
+  const doneField = isVoting ? 'voterId' : 'userId'
+  const done = new Set(snap.docs.map(d => d.data()[doneField]))
+  return members.filter(uid => !done.has(uid))
 }
 
 export default async function handler(req, res) {
-  // Verify this is called by Vercel Cron (or manually for testing)
-  const authHeader = req.headers.authorization
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && process.env.NODE_ENV !== 'development') {
+  // Vercel Cron schickt automatisch "Authorization: Bearer $CRON_SECRET", sobald das
+  // Secret in den Projekt-Env-Vars gesetzt ist. Ohne Secret läuft der Job ungeschützt.
+  const secret = process.env.CRON_SECRET
+  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -53,66 +43,60 @@ export default async function handler(req, res) {
   const now = Date.now()
 
   try {
-    const roundsSnap = await db.collection('rounds')
+    const roundsSnap = await db
+      .collection('rounds')
       .where('status', 'in', ['submission', 'voting'])
       .get()
 
-    if (roundsSnap.empty) return res.json({ sent: 0, message: 'No active rounds' })
+    if (roundsSnap.empty) return res.json({ sent: 0, message: 'Keine laufenden Runden' })
 
-    const subsSnap = await db.collection('pushSubscriptions').get()
-    const allSubs = subsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-    if (!allSubs.length) return res.json({ sent: 0, message: 'No subscriptions' })
-
-    const batch = db.batch()
     let sent = 0
+    let removed = 0
 
     for (const roundDoc of roundsSnap.docs) {
-      const round = roundDoc.data()
-      const roundId = roundDoc.id
+      const round = { id: roundDoc.id, ...roundDoc.data() }
+      const isVoting = round.status === 'voting'
+      // Merker-Felder aus der bisherigen Version beibehalten
+      const sentFlag = isVoting ? 'votingNotificationSent' : 'submissionNotificationSent'
+      if (round[sentFlag]) continue
 
-      const groupDoc = await db.collection('groups').doc(round.groupId).get()
-      const groupName = groupDoc.data()?.name || 'deine Gruppe'
-      const url = `/group/${round.groupId}/round/${roundId}`
+      const deadline = toMillis(isVoting ? round.votingDeadline : round.submissionDeadline)
+      if (!deadline) continue
 
-      if (round.status === 'submission' && !round.submissionNotificationSent) {
-        const deadline = round.submissionDeadline?.toMillis?.() || round.submissionDeadline
-        const timeUntil = deadline - now
-        if (timeUntil > 0 && timeUntil <= NOTIFY_BEFORE_MS + WINDOW_MS && timeUntil > NOTIFY_BEFORE_MS - WINDOW_MS) {
-          for (const sub of allSubs) {
-            const result = await sendPush(sub, {
-              title: '🎵 Song einreichen endet bald!',
-              body: `Noch 24h für „${round.prompt}" in ${groupName}`,
-              tag: `submission-${roundId}`,
-              url,
-            })
-            if (result === 'expired') batch.delete(db.collection('pushSubscriptions').doc(sub.id))
-            if (result === true) sent++
-          }
-          batch.update(roundDoc.ref, { submissionNotificationSent: true })
-        }
+      const remaining = deadline - now
+      // Erinnern, sobald weniger als 24h übrig sind (auch wenn die Deadline schon
+      // vorbei ist, solange die Runde noch läuft — sie blockiert dann ja alle anderen).
+      if (remaining > DAY_MS) continue
+
+      const groupSnap = await db.collection('groups').doc(round.groupId).get()
+      const group = groupSnap.data() || {}
+      const members = group.members || []
+
+      const pending = await pendingMembers(db, round, members)
+      if (!pending.length) {
+        await roundDoc.ref.update({ [sentFlag]: true })
+        continue
       }
 
-      if (round.status === 'voting' && !round.votingNotificationSent) {
-        const deadline = round.votingDeadline?.toMillis?.() || round.votingDeadline
-        const timeUntil = deadline - now
-        if (timeUntil > 0 && timeUntil <= NOTIFY_BEFORE_MS + WINDOW_MS && timeUntil > NOTIFY_BEFORE_MS - WINDOW_MS) {
-          for (const sub of allSubs) {
-            const result = await sendPush(sub, {
-              title: '🗳️ Abstimmung endet bald!',
-              body: `Noch 24h zum Abstimmen für „${round.prompt}" in ${groupName}`,
-              tag: `voting-${roundId}`,
-              url,
-            })
-            if (result === 'expired') batch.delete(db.collection('pushSubscriptions').doc(sub.id))
-            if (result === true) sent++
-          }
-          batch.update(roundDoc.ref, { votingNotificationSent: true })
-        }
+      const subs = await getSubscriptionsForUsers(db, pending)
+      if (subs.length) {
+        const overdue = remaining <= 0
+        const result = await sendToSubscriptions(db, subs, {
+          title: isVoting ? '🗳️ Du hast noch nicht abgestimmt' : '🎵 Du hast noch keinen Song',
+          body: overdue
+            ? `Die Gruppe ${group.name || ''} wartet auf dich — „${round.prompt}"`
+            : `Noch 24h für „${round.prompt}" in ${group.name || 'deiner Gruppe'}`,
+          tag: `${round.status}-reminder-${round.id}`,
+          url: `/group/${round.groupId}/round/${round.id}`,
+        })
+        sent += result.sent
+        removed += result.removed
       }
+
+      await roundDoc.ref.update({ [sentFlag]: true })
     }
 
-    await batch.commit()
-    return res.json({ sent, message: `Sent ${sent} notifications` })
+    return res.json({ sent, removed })
   } catch (err) {
     console.error('Cron error:', err)
     return res.status(500).json({ error: err.message })

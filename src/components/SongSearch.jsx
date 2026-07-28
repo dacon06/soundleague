@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { searchSongs } from '../youtube'
+import YouTubePlayer from './YouTubePlayer'
 import { db } from '../firebase'
 import { collection, query as fsQuery, where, getDocs, doc, getDoc } from 'firebase/firestore'
 
@@ -24,6 +25,7 @@ export default function SongSearch({ onSelect, onClose, groupId }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
+  const [preview, setPreview] = useState(null) // videoId, das gerade vorgehört wird
   const [usedSongs, setUsedSongs] = useState({})
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function SongSearch({ onSelect, onClose, groupId }) {
   const doSearch = useCallback(
     debounce(async (q) => {
       if (!q || q.trim().length < 3) { setResults([]); return }
-      setLoading(true); setError('')
+      setLoading(true); setError(''); setPreview(null)
       try { setResults(await searchSongs(q)) }
       catch (e) { setError(e.message) }
       finally { setLoading(false) }
@@ -78,29 +80,57 @@ export default function SongSearch({ onSelect, onClose, groupId }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 380, overflowY: 'auto' }}>
             {results.map(song => {
               const isSelected = selected?.id === song.id
+              const isPreview = preview === song.id
               const wasUsed = usedSongs[song.id]
               return (
-                <button key={song.id} onClick={() => setSelected(isSelected ? null : song)} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                <div key={song.id} style={{
                   background: isSelected ? 'var(--accent-dim)' : wasUsed ? 'rgba(245,166,35,0.07)' : 'var(--surface3)',
                   border: isSelected ? '2px solid var(--accent)' : wasUsed ? '1px solid rgba(245,166,35,0.3)' : '1px solid var(--border2)',
-                  borderRadius: 'var(--radius)', padding: '10px 14px', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.15s',
+                  borderRadius: 'var(--radius)', padding: '10px 14px', transition: 'all 0.15s',
                 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F4FF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {parseTitle(song.title)}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, color: '#7A7A9A' }}>{song.channelTitle}</span>
-                      {wasUsed && (
-                        <span style={{ fontSize: 10, background: 'rgba(245,166,35,0.15)', color: 'var(--accent2)', border: '1px solid rgba(245,166,35,0.3)', borderRadius: 100, padding: '1px 7px', fontWeight: 600 }}>
-                          ↩ {wasUsed}
-                        </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {/* Vorhören – unabhängig vom Auswählen */}
+                    <button
+                      onClick={() => setPreview(isPreview ? null : song.id)}
+                      title={isPreview ? 'Vorhören beenden' : 'Vorhören'}
+                      style={{
+                        width: 30, height: 30, borderRadius: '50%', flexShrink: 0, padding: 0,
+                        background: isPreview ? '#FF0000' : 'var(--surface2)',
+                        border: '1px solid var(--border2)', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      {isPreview ? (
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="#fff"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+                      ) : (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="#F5F4FF" style={{ marginLeft: 2 }}><polygon points="5,3 19,12 5,21" /></svg>
                       )}
-                    </div>
+                    </button>
+
+                    <button onClick={() => setSelected(isSelected ? null : song)} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                      background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                      textAlign: 'left', flex: 1, minWidth: 0,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F4FF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {parseTitle(song.title)}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: '#7A7A9A' }}>{song.channelTitle}</span>
+                          {wasUsed && (
+                            <span style={{ fontSize: 10, background: 'rgba(245,166,35,0.15)', color: 'var(--accent2)', border: '1px solid rgba(245,166,35,0.3)', borderRadius: 100, padding: '1px 7px', fontWeight: 600 }}>
+                              ↩ {wasUsed}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {isSelected && <span style={{ color: 'var(--accent)', fontSize: 18, flexShrink: 0 }}>✓</span>}
+                    </button>
                   </div>
-                  {isSelected && <span style={{ color: 'var(--accent)', fontSize: 18, flexShrink: 0 }}>✓</span>}
-                </button>
+
+                  {isPreview && <YouTubePlayer videoId={song.id} compact autoPlay />}
+                </div>
               )
             })}
           </div>
@@ -111,6 +141,7 @@ export default function SongSearch({ onSelect, onClose, groupId }) {
               <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(124,106,245,0.3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F4FF' }}>{parseTitle(selected.title)}</div>
                 <div style={{ fontSize: 12, color: '#7A7A9A', marginTop: 2 }}>{selected.channelTitle}</div>
+                {preview !== selected.id && <YouTubePlayer videoId={selected.id} compact />}
               </div>
               <button onClick={() => onSelect(selected)} className="btn btn-primary btn-full">Song einreichen</button>
             </div>

@@ -4,11 +4,14 @@
 // The calendar deadlines are still written at creation time so the push-
 // notification reminders keep working, but they no longer force transitions.
 
-import { db } from './firebase'
+import { db, auth } from './firebase'
 import {
   doc, getDoc, collection, query, where, getDocs,
   addDoc, updateDoc, serverTimestamp,
 } from 'firebase/firestore'
+import { notifyRound } from './notify'
+
+const actor = () => auth.currentUser?.uid || null
 
 export function toItem(raw) {
   if (typeof raw === 'string') return { name: raw, description: '' }
@@ -66,40 +69,66 @@ export function formatRunning(round) {
   return `läuft seit ${d} Tag${d === 1 ? '' : 'en'}`
 }
 
-// ─── Nächste Runde aus der Warteschlange starten ───
-export async function autoStartNext(finishedRound) {
-  const groupId = finishedRound.groupId
-  const groupRef = doc(db, 'groups', groupId)
-  const groupSnap = await getDoc(groupRef)
-  const gdata = groupSnap.data() || {}
-
-  // Schutz gegen doppeltes Starten, wenn mehrere Clients gleichzeitig prüfen:
-  // Nur weiterschalten, wenn diese Runde noch die aktuelle ist.
-  if (gdata.currentRoundId && gdata.currentRoundId !== finishedRound.id) return
-
-  const queue = (gdata.categoryQueue || []).map(toItem)
-  if (!queue.length) return
-
-  const next = queue[0]
+// ─── Runde anlegen ───
+// Legt die Runde an, macht sie zur aktuellen Runde der Gruppe und benachrichtigt
+// die übrigen Mitglieder. Gibt die neue roundId zurück.
+export async function createRound(groupId, item, createdBy, remainingQueue) {
   const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
   const roundRef = await addDoc(collection(db, 'rounds'), {
     groupId,
-    prompt: next.name,
-    description: next.description || '',
+    prompt: item.name,
+    description: item.description || '',
     status: 'submission',
     submissionDeadline,
     votingDeadline,
     playlistId: null,
-    createdBy: finishedRound.createdBy,
+    createdBy,
     createdAt: serverTimestamp(),
     submissionNotificationSent: false,
     votingNotificationSent: false,
     fromQueue: true,
   })
-  await updateDoc(groupRef, {
+  await updateDoc(doc(db, 'groups', groupId), {
     currentRoundId: roundRef.id,
-    categoryQueue: queue.slice(1),
+    categoryQueue: remainingQueue,
   })
+  notifyRound(roundRef.id, 'round-start', actor())
+  return roundRef.id
+}
+
+// ─── Nächste Runde aus der Warteschlange starten ───
+// Gibt true zurück, wenn tatsächlich eine Folgerunde gestartet wurde.
+export async function autoStartNext(finishedRound) {
+  const groupId = finishedRound.groupId
+  const groupSnap = await getDoc(doc(db, 'groups', groupId))
+  const gdata = groupSnap.data() || {}
+
+  // Schutz gegen doppeltes Starten, wenn mehrere Clients gleichzeitig prüfen:
+  // Nur weiterschalten, wenn diese Runde noch die aktuelle ist.
+  if (gdata.currentRoundId && gdata.currentRoundId !== finishedRound.id) return false
+
+  const queue = (gdata.categoryQueue || []).map(toItem)
+  if (!queue.length) return false
+
+  await createRound(groupId, queue[0], finishedRound.createdBy, queue.slice(1))
+  return true
+}
+
+// ─── Phasenwechsel (auch vom manuellen Überspringen genutzt) ───
+export async function advanceToVoting(round) {
+  await updateDoc(doc(db, 'rounds', round.id), {
+    status: 'voting',
+    votingStartedAt: serverTimestamp(),
+  })
+  notifyRound(round.id, 'voting', actor())
+}
+
+export async function finishRound(round) {
+  await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
+  const nextStarted = await autoStartNext(round)
+  // Startet direkt eine neue Runde, reicht deren Benachrichtigung — sonst gäbe es
+  // zwei Pushes im selben Moment.
+  if (!nextStarted) notifyRound(round.id, 'results', actor())
 }
 
 // ─── Fortschritt prüfen und ggf. Phase weiterschalten ───
@@ -108,18 +137,13 @@ export async function checkRoundCompletion(round, memberCount) {
   if (round.status === 'submission') {
     const snap = await getDocs(query(collection(db, 'submissions'), where('roundId', '==', round.id)))
     const done = new Set(snap.docs.map(d => d.data().userId)).size
-    if (memberCount > 0 && done >= memberCount) {
-      await updateDoc(doc(db, 'rounds', round.id), { status: 'voting', votingStartedAt: serverTimestamp() })
-    }
+    if (memberCount > 0 && done >= memberCount) await advanceToVoting(round)
     return { done, total: memberCount }
   }
   if (round.status === 'voting') {
     const snap = await getDocs(query(collection(db, 'votes'), where('roundId', '==', round.id)))
     const done = new Set(snap.docs.map(d => d.data().voterId)).size
-    if (memberCount > 0 && done >= memberCount) {
-      await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
-      await autoStartNext(round)
-    }
+    if (memberCount > 0 && done >= memberCount) await finishRound(round)
     return { done, total: memberCount }
   }
   return { done: 0, total: memberCount }

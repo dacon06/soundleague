@@ -58,5 +58,13 @@ service cloud.firestore {
       allow create: if isLoggedIn() && request.auth.uid == request.resource.data.voterId;
       allow update, delete: if request.auth.uid == resource.data.voterId;
     }
+
+    // Push-Abos: jeder verwaltet nur seine eigenen Geräte.
+    // Gelesen und verschickt wird serverseitig über das Admin-SDK (umgeht diese Regeln).
+    match /pushSubscriptions/{subId} {
+      allow read: if isLoggedIn() && request.auth.uid == resource.data.userId;
+      allow create, update: if isLoggedIn() && request.auth.uid == request.resource.data.userId;
+      allow delete: if isLoggedIn() && request.auth.uid == resource.data.userId;
+    }
   }
 }

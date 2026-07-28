@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { doc, setDoc, deleteDoc } from 'firebase/firestore'
+import { doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
@@ -12,68 +12,97 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
 }
 
+// Dokument-ID aus dem Endpoint ableiten: ein Nutzer kann mehrere Geräte haben,
+// aber dasselbe Gerät soll beim erneuten Abonnieren kein Duplikat anlegen.
+async function subscriptionId(endpoint) {
+  const bytes = new TextEncoder().encode(endpoint)
+  const hash = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32)
+}
+
+async function saveSubscription(sub, uid) {
+  const data = sub.toJSON()
+  const id = await subscriptionId(data.endpoint)
+  await setDoc(doc(db, 'pushSubscriptions', id), {
+    userId: uid,
+    endpoint: data.endpoint,
+    keys: data.keys,
+    updatedAt: serverTimestamp(),
+  })
+}
+
 export function usePushNotifications() {
   const { user } = useAuth()
   const [permission, setPermission] = useState(() => {
     try { return Notification.permission } catch { return 'denied' }
   })
+  const [enabled, setEnabled] = useState(false)
 
-  // Check if truly supported
   const supported = typeof Notification !== 'undefined' &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&
     !!VAPID_PUBLIC_KEY
 
-  const subscribe = async () => {
+  // Bestehendes Abo erkennen und in Firestore auffrischen. Browser können Abos
+  // eigenständig erneuern — ohne diesen Abgleich zeigt der Server ins Leere.
+  useEffect(() => {
+    if (!supported || !user) return
+    let cancelled = false
+    navigator.serviceWorker.ready
+      .then(reg => reg.pushManager.getSubscription())
+      .then(async sub => {
+        if (cancelled || !sub) return
+        await saveSubscription(sub, user.uid)
+        if (!cancelled) setEnabled(true)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [supported, user])
+
+  const subscribe = useCallback(async () => {
     if (!supported || !user) return false
 
     try {
-      // Request permission
       const perm = await Notification.requestPermission()
       setPermission(perm)
       if (perm !== 'granted') return false
 
-      // Wait for SW
       const reg = await navigator.serviceWorker.ready
 
-      // Unsubscribe existing
-      const existing = await reg.pushManager.getSubscription()
-      if (existing) await existing.unsubscribe()
+      // Vorhandenes Abo weiterverwenden — erneutes subscribe() mit gleichem Key
+      // liefert sonst je nach Browser einen Fehler.
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        })
+      }
 
-      // Subscribe
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      })
-
-      // Save to Firestore
-      const subData = sub.toJSON()
-      await setDoc(doc(db, 'pushSubscriptions', user.uid), {
-        userId: user.uid,
-        endpoint: subData.endpoint,
-        keys: subData.keys,
-        updatedAt: new Date(),
-      })
-
+      await saveSubscription(sub, user.uid)
+      setEnabled(true)
       return true
     } catch (err) {
       console.error('Push subscribe error:', err)
       return false
     }
-  }
+  }, [supported, user])
 
-  const unsubscribe = async () => {
+  const unsubscribe = useCallback(async () => {
     if (!user) return
     try {
       const reg = await navigator.serviceWorker.ready
       const sub = await reg.pushManager.getSubscription()
-      if (sub) await sub.unsubscribe()
-      await deleteDoc(doc(db, 'pushSubscriptions', user.uid))
-      setPermission('default')
+      if (sub) {
+        const id = await subscriptionId(sub.endpoint)
+        await sub.unsubscribe()
+        await deleteDoc(doc(db, 'pushSubscriptions', id))
+      }
+      setEnabled(false)
     } catch (err) {
       console.error('Unsubscribe error:', err)
     }
-  }
+  }, [user])
 
-  return { supported, permission, subscribe, unsubscribe }
+  return { supported, permission, enabled, subscribe, unsubscribe }
 }

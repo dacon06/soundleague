@@ -52,8 +52,6 @@ a { color: inherit; text-decoration: none; }
 .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
 .btn-ghost:hover { color: var(--text); border-color: var(--border2); background: var(--surface2); }
 .btn-danger { background: var(--danger); color: #fff; }
-.btn-spotify { background: #1DB954; color: #000; font-weight: 600; }
-.btn-spotify:hover { background: #1ed760; transform: translateY(-1px); }
 .btn-full { width: 100%; } .btn-sm { padding: 6px 12px; font-size: 13px; } .btn-lg { padding: 13px 22px; font-size: 15px; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; }
 

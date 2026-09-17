@@ -482,6 +482,20 @@ export default function GroupPage() {
     navigate('/')
   }
 
+  const handleKickMember = async (uid) => {
+    if (!isAdmin || uid === user.uid) return
+    const name = group.memberNames?.[uid] || 'Dieses Mitglied'
+    if (!window.confirm(`${name} wirklich aus der Gruppe entfernen?`)) return
+    try {
+      await updateDoc(doc(db, 'groups', groupId), {
+        members: arrayRemove(uid),
+        [`memberNames.${uid}`]: deleteField(),
+      })
+    } catch (err) {
+      alert('Fehler beim Entfernen: ' + err.message)
+    }
+  }
+
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
   if (!group) return <div className="page"><p>Gruppe nicht gefunden.</p></div>
 
@@ -537,7 +551,28 @@ export default function GroupPage() {
       {/* Members row */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
         {group.members.map(uid => (
-          <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, position: 'relative' }}>
+            {isAdmin && uid !== user.uid && (
+              <button
+                onClick={() => handleKickMember(uid)}
+                title="Aus der Gruppe entfernen"
+                style={{
+                  position: 'absolute', top: -6, right: -2,
+                  width: 18, height: 18,
+                  borderRadius: '50%',
+                  background: 'var(--danger)',
+                  color: '#fff',
+                  border: '2px solid var(--bg)',
+                  fontSize: 10,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: 0,
+                }}
+              >
+                ✕
+              </button>
+            )}
             <UserAvatar name={group.memberNames?.[uid] || 'Anonym'} uid={uid} size={44} />
             <span style={{ fontSize: 10, color: uid === user.uid ? 'var(--accent)' : 'var(--text-dim)', maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {uid === user.uid ? 'Du' : (group.memberNames?.[uid] || 'Anonym').split(' ')[0]}

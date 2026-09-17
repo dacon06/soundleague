@@ -551,32 +551,34 @@ export default function GroupPage() {
       {/* Members row */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
         {group.members.map(uid => (
-          <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, position: 'relative' }}>
-            {isAdmin && uid !== user.uid && (
-              <button
-                onClick={() => handleKickMember(uid)}
-                title="Aus der Gruppe entfernen"
-                style={{
-                  position: 'absolute', top: -6, right: -2,
-                  width: 18, height: 18,
-                  borderRadius: '50%',
-                  background: 'var(--danger)',
-                  color: '#fff',
-                  border: '2px solid var(--bg)',
-                  fontSize: 10,
-                  lineHeight: 1,
-                  cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: 0,
-                }}
-              >
-                ✕
-              </button>
-            )}
+          <div key={uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
             <UserAvatar name={group.memberNames?.[uid] || 'Anonym'} uid={uid} size={44} />
             <span style={{ fontSize: 10, color: uid === user.uid ? 'var(--accent)' : 'var(--text-dim)', maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {uid === user.uid ? 'Du' : (group.memberNames?.[uid] || 'Anonym').split(' ')[0]}
             </span>
+            {isAdmin && uid !== user.uid && (
+              <button
+                onClick={() => handleKickMember(uid)}
+                title="Aus der Gruppe entfernen"
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.opacity = 1 }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = 0.5 }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  opacity: 0.5,
+                  fontSize: 9,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  padding: 0,
+                  marginTop: 1,
+                  fontFamily: 'DM Sans, sans-serif',
+                  transition: 'color 0.15s, opacity 0.15s',
+                }}
+              >
+                entfernen
+              </button>
+            )}
           </div>
         ))}
         <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>

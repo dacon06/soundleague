@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import SongSearch from '../components/SongSearch'
 import UserAvatar from '../components/UserAvatar'
 import YouTubePlayer from '../components/YouTubePlayer'
+import ConfirmModal from '../components/ConfirmModal'
+import SeasonCard from '../components/SeasonCard'
 import { createYouTubePlaylistUrl } from '../youtube'
 import { maybeAdvanceRound, formatRunning } from '../rounds'
 import {
@@ -53,6 +55,11 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
   const [submitting, setSubmitting] = useState(false)
   const [comment, setComment] = useState('')
   const [editingComment, setEditingComment] = useState(false)
+  // Song, der ausgewählt, aber noch nicht abgegeben wurde (solange der Nutzer noch einen Kommentar schreibt)
+  const [pendingSong, setPendingSong] = useState(null)
+  const [showCommentPrompt, setShowCommentPrompt] = useState(false)
+  const commentPromptShown = useRef(false) // die Rückfrage kommt nur ein einziges Mal
+  const commentInputRef = useRef(null)
 
   useEffect(() => {
     const q = query(collection(db, 'submissions'), where('roundId', '==', roundId))
@@ -66,8 +73,8 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
     })
   }, [roundId, user.uid])
 
-  const handleSelect = async (song) => {
-    setShowSearch(false)
+  const submitSong = async (song) => {
+    setPendingSong(null)
     setSubmitting(true)
     try {
       if (mySubmission) await deleteDoc(doc(db, 'submissions', mySubmission.id))
@@ -90,6 +97,31 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // Wird aufgerufen, wenn in der Suche „Song einreichen" gedrückt wird.
+  const handleSelect = (song) => {
+    setShowSearch(false)
+    // Nutzer schreibt nach der Rückfrage noch seinen Kommentar → nur den Song austauschen
+    if (pendingSong) { setPendingSong(song); return }
+    // Erste Abgabe ohne Kommentar → einmalig nachfragen
+    if (!mySubmission && !comment.trim() && !commentPromptShown.current) {
+      commentPromptShown.current = true
+      setPendingSong(song)
+      setShowCommentPrompt(true)
+      return
+    }
+    submitSong(song)
+  }
+
+  const handleWriteComment = () => {
+    setShowCommentPrompt(false)
+    setTimeout(() => commentInputRef.current?.focus(), 50)
+  }
+
+  const handleSubmitWithoutComment = () => {
+    setShowCommentPrompt(false)
+    if (pendingSong) submitSong(pendingSong)
   }
 
   const handleSaveComment = async () => {
@@ -152,18 +184,35 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ marginBottom: 16 }}>
             <label>Kommentar zu deinem Song (optional)</label>
-            <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Warum wählst du diesen Song?" rows={2} style={{ fontSize: 13 }} />
+            <textarea ref={commentInputRef} value={comment} onChange={e => setComment(e.target.value)} placeholder="Warum wählst du diesen Song?" rows={2} style={{ fontSize: 13 }} />
           </div>
-          <div style={{ textAlign: 'center', padding: '8px 0' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🎵</div>
-            <h3 style={{ fontSize: 18, marginBottom: 8 }}>Reiche deinen Song ein</h3>
-            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
-              Kategorie: „{round.prompt}"
-            </p>
-            <button onClick={() => setShowSearch(true)} className="btn btn-primary btn-lg" disabled={submitting}>
-              {submitting ? '…' : '🔍 Song suchen'}
-            </button>
-          </div>
+          {pendingSong ? (
+            <div>
+              <div className="section-title">Ausgewählter Song</div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                {pendingSong.thumbnail && <img src={pendingSong.thumbnail} alt="" style={{ width: 80, height: 60, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{pendingSong.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{pendingSong.channelTitle}</div>
+                </div>
+              </div>
+              <button onClick={() => submitSong(pendingSong)} className="btn btn-primary btn-full btn-lg" disabled={submitting}>
+                {submitting ? '…' : '✓ Song einreichen'}
+              </button>
+              <button onClick={() => setShowSearch(true)} className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} disabled={submitting}>Anderen Song wählen</button>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '8px 0' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🎵</div>
+              <h3 style={{ fontSize: 18, marginBottom: 8 }}>Reiche deinen Song ein</h3>
+              <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
+                Kategorie: „{round.prompt}"
+              </p>
+              <button onClick={() => setShowSearch(true)} className="btn btn-primary btn-lg" disabled={submitting}>
+                {submitting ? '…' : '🔍 Song suchen'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -183,6 +232,17 @@ function SubmissionPhase({ round, group, groupId, roundId }) {
       </div>
 
       {showSearch && <SongSearch onSelect={handleSelect} onClose={() => setShowSearch(false)} groupId={groupId} />}
+
+      {showCommentPrompt && (
+        <ConfirmModal
+          title="Ohne Kommentar einreichen?"
+          message="Du hast noch keinen Kommentar zu deinem Song geschrieben. Ein kurzer Satz, warum du ihn gewählt hast, macht die Auswertung deutlich spannender."
+          primaryLabel="✏️ Kommentar schreiben"
+          secondaryLabel="Ohne Kommentar einreichen"
+          onPrimary={handleWriteComment}
+          onSecondary={handleSubmitWithoutComment}
+        />
+      )}
     </div>
   )
 }
@@ -198,6 +258,9 @@ function VotingPhase({ round, group, groupId, roundId }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [voterCount, setVoterCount] = useState(0)
+  const [showCommentPrompt, setShowCommentPrompt] = useState(false)
+  const commentPromptShown = useRef(false) // die Rückfrage kommt nur ein einziges Mal
+  const firstCommentRef = useRef(null)
 
   const totalMembers = group?.members?.length || 0
   const totalVotes = group?.votesPerMember || 3
@@ -239,7 +302,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
     setSaved(false)
   }, [])
 
-  const handleSave = async () => {
+  const saveVotes = async () => {
     setSaving(true)
     try {
       await Promise.all(existingVotes.map(v => deleteDoc(doc(db, 'votes', v.id))))
@@ -265,6 +328,30 @@ function VotingPhase({ round, group, groupId, roundId }) {
       // Alle abgestimmt? → automatisch zu den Ergebnissen
       await maybeAdvanceRound(round, group)
     } catch (err) { alert('Fehler: ' + err.message) } finally { setSaving(false) }
+  }
+
+  // Beim ersten Abgeben ohne einen einzigen Kommentar zu fremden Songs → einmalig nachfragen.
+  // (Wer schon einmal abgegeben hat, wurde damit bereits gefragt.)
+  const handleSave = () => {
+    const hasAnyComment = submissions.some(sub =>
+      sub.userId !== user.uid && (myComments[sub.id] || '').trim() !== ''
+    )
+    if (!hasAnyComment && existingVotes.length === 0 && !commentPromptShown.current) {
+      commentPromptShown.current = true
+      setShowCommentPrompt(true)
+      return
+    }
+    saveVotes()
+  }
+
+  const handleWriteComments = () => {
+    setShowCommentPrompt(false)
+    setTimeout(() => firstCommentRef.current?.focus(), 50)
+  }
+
+  const handleSaveWithoutComments = () => {
+    setShowCommentPrompt(false)
+    saveVotes()
   }
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
@@ -294,7 +381,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {otherSubs.map(sub => (
+        {otherSubs.map((sub, idx) => (
           <div key={sub.id} className="card">
             <div style={{ marginBottom: 10 }}>
               <div>
@@ -313,7 +400,7 @@ function VotingPhase({ round, group, groupId, roundId }) {
             </div>
             <div>
               <label>Kommentar (optional)</label>
-              <textarea value={myComments[sub.id] || ''} onChange={e => { setMyComments(prev => ({ ...prev, [sub.id]: e.target.value })); setSaved(false) }} placeholder="Was denkst du über diesen Song?" rows={2} style={{ fontSize: 13 }} />
+              <textarea ref={idx === 0 ? firstCommentRef : undefined} value={myComments[sub.id] || ''} onChange={e => { setMyComments(prev => ({ ...prev, [sub.id]: e.target.value })); setSaved(false) }} placeholder="Was denkst du über diesen Song?" rows={2} style={{ fontSize: 13 }} />
             </div>
           </div>
         ))}
@@ -338,6 +425,17 @@ function VotingPhase({ round, group, groupId, roundId }) {
           {saving ? '…' : saved ? '✓ Gespeichert' : usedVotes > 0 ? `Stimmen abgeben (${usedVotes}/${totalVotes})` : 'Kommentare speichern'}
         </button>
       </div>
+
+      {showCommentPrompt && (
+        <ConfirmModal
+          title="Ohne Kommentare abstimmen?"
+          message="Du hast noch zu keinem Song einen Kommentar geschrieben. Schon ein kurzes Feedback freut die Einreicher – am Ende sehen alle, wer was geschrieben hat."
+          primaryLabel="✏️ Kommentare schreiben"
+          secondaryLabel="Ohne Kommentare abgeben"
+          onPrimary={handleWriteComments}
+          onSecondary={handleSaveWithoutComments}
+        />
+      )}
     </div>
   )
 }
@@ -420,6 +518,26 @@ function ResultsPhase({ round, group, groupId, roundId }) {
   )
 }
 
+// ─── Saisonende-Banner ───
+// Wird über den Ergebnissen der letzten Runde einer Saison gezeigt.
+function SeasonEndBanner({ groupId, seasonNumber }) {
+  const [season, setSeason] = useState(null)
+
+  useEffect(() => {
+    getDoc(doc(db, 'seasons', `${groupId}_${seasonNumber}`))
+      .then(snap => { if (snap.exists()) setSeason({ id: snap.id, ...snap.data() }) })
+      .catch(() => {})
+  }, [groupId, seasonNumber])
+
+  if (!season) return null
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div className="section-title">🎉 Saison {seasonNumber} ist beendet</div>
+      <SeasonCard season={season} defaultOpen />
+    </div>
+  )
+}
+
 // ─── Main ───
 export default function RoundPage() {
   const { groupId, roundId } = useParams()
@@ -466,6 +584,7 @@ export default function RoundPage() {
       </div>
       {round.status === 'submission' && <SubmissionPhase round={round} group={group} groupId={groupId} roundId={roundId} />}
       {round.status === 'voting'     && <VotingPhase     round={round} group={group} groupId={groupId} roundId={roundId} />}
+      {round.status === 'results'    && round.endsSeason && <SeasonEndBanner groupId={groupId} seasonNumber={round.endsSeason} />}
       {round.status === 'results'    && <ResultsPhase    round={round} group={group} groupId={groupId} roundId={roundId} />}
     </div>
   )

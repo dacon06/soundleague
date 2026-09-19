@@ -5,7 +5,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import UserAvatar from '../components/UserAvatar'
 import Chat from '../components/Chat'
-import { toItem, createRound, advanceToVoting, finishRound, checkRoundCompletion, formatRunning } from '../rounds'
+import SeasonCard from '../components/SeasonCard'
+import { toItem, createRound, advanceToVoting, finishRound, checkRoundCompletion, formatRunning, SEASON_LENGTH, seasonOf } from '../rounds'
 import {
   doc, getDoc, onSnapshot, collection, query, where,
   orderBy, updateDoc, getDocs,
@@ -328,6 +329,7 @@ export default function GroupPage() {
 
   const [group, setGroup] = useState(null)
   const [rounds, setRounds] = useState([])
+  const [seasons, setSeasons] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('runden')
   const [modal, setModal] = useState(null)
@@ -346,6 +348,18 @@ export default function GroupPage() {
   useEffect(() => {
     const q = query(collection(db, 'rounds'), where('groupId', '==', groupId), orderBy('createdAt', 'desc'))
     return onSnapshot(q, snap => setRounds(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  }, [groupId])
+
+  // Archiv der abgeschlossenen Saisons (Champions)
+  useEffect(() => {
+    const q = query(collection(db, 'seasons'), where('groupId', '==', groupId))
+    return onSnapshot(
+      q,
+      snap => setSeasons(
+        snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.seasonNumber - a.seasonNumber)
+      ),
+      () => setSeasons([])
+    )
   }, [groupId])
 
   // Track unread chat messages
@@ -394,9 +408,10 @@ export default function GroupPage() {
   // Leaderboard
   useEffect(() => {
     if (!group || !rounds.length) return
+    const season = group.seasonNumber || 1
     const build = async () => {
       const points = {}
-      for (const round of rounds.filter(r => r.status === 'results')) {
+      for (const round of rounds.filter(r => r.status === 'results' && seasonOf(r) === season)) {
         const snap = await getDocs(query(collection(db, 'votes'), where('roundId', '==', round.id)))
         snap.docs.forEach(d => {
           const v = d.data()
@@ -414,6 +429,8 @@ export default function GroupPage() {
 
   const isAdmin = group?.createdBy === user?.uid
   const queueLength = (group?.categoryQueue || []).length
+  const currentSeason = group?.seasonNumber || 1
+  const seasonDone = rounds.filter(r => r.status === 'results' && seasonOf(r) === currentSeason).length
 
   const [skipRound, setSkipRound] = useState(null)
 
@@ -461,6 +478,9 @@ export default function GroupPage() {
         votesSnap.docs.forEach(d => batch.delete(d.ref))
         batch.delete(r.ref)
       }
+      // Delete season archive
+      const seasonsSnap = await getDocs(query(collection(db, 'seasons'), where('groupId', '==', groupId)))
+      seasonsSnap.docs.forEach(d => batch.delete(d.ref))
       // Delete chat messages
       const msgsSnap = await getDocs(collection(db, 'groups', groupId, 'messages'))
       msgsSnap.docs.forEach(d => batch.delete(d.ref))
@@ -593,7 +613,7 @@ export default function GroupPage() {
         {[
           { key: 'runden',        label: '🎵 Runden' },
           { key: 'warteschlange', label: `⏭ Queue${queueLength > 0 ? ` (${queueLength})` : ''}` },
-          { key: 'bestenliste',   label: '🏆 Punkte' },
+          { key: 'bestenliste',   label: '🏆 Saison' },
           { key: 'chat',          label: '💬 Chat' },
         ].map(t => (
           <button key={t.key} className={`tab-btn ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)} style={{ position: 'relative' }}>
@@ -620,6 +640,15 @@ export default function GroupPage() {
       {tab === 'runden' && (
         <div>
           <button onClick={() => setModal('queue')} className="btn btn-primary btn-full" style={{ marginBottom: 16 }}>⏭ Warteschlange bearbeiten</button>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>
+              <span>🏁 Saison {currentSeason}</span>
+              <span>{Math.min(seasonDone, SEASON_LENGTH)}/{SEASON_LENGTH} Runden</span>
+            </div>
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${Math.min(100, (seasonDone / SEASON_LENGTH) * 100)}%`, background: 'var(--accent2)' }} />
+            </div>
+          </div>
           {queueLength > 0 && (
             <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--accent)' }}>
               ⏭ {queueLength} Kategorie{queueLength !== 1 ? 'n' : ''} in der Warteschlange
@@ -719,21 +748,39 @@ export default function GroupPage() {
 
       {/* ── Leaderboard ── */}
       {tab === 'bestenliste' && (
-        <div className="card">
-          <h3 style={{ fontSize: 20, marginBottom: 16 }}>Bestenliste</h3>
-          {leaderboard.length === 0 ? <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>Noch keine abgeschlossenen Runden.</p> : (
-            leaderboard.map((entry, i) => (
-              <div key={entry.uid} className="leaderboard-row">
-                <div className={`leaderboard-rank ${i < 3 ? 'top' : ''}`}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</div>
-                <UserAvatar name={entry.name} uid={entry.uid} size={36} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: entry.uid === user.uid ? 700 : 400 }}>{entry.name} {entry.uid === user.uid && '(Du)'}</div>
+        <div>
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 16 }}>
+              <h3 style={{ fontSize: 20 }}>Saison {currentSeason}</h3>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{Math.min(seasonDone, SEASON_LENGTH)}/{SEASON_LENGTH} Runden</span>
+            </div>
+            {leaderboard.length === 0 ? <p style={{ color: 'var(--text-dim)', fontSize: 13 }}>In dieser Saison gibt es noch keine abgeschlossenen Runden.</p> : (
+              leaderboard.map((entry, i) => (
+                <div key={entry.uid} className="leaderboard-row">
+                  <div className={`leaderboard-rank ${i < 3 ? 'top' : ''}`}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</div>
+                  <UserAvatar name={entry.name} uid={entry.uid} size={36} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: entry.uid === user.uid ? 700 : 400 }}>{entry.name} {entry.uid === user.uid && '(Du)'}</div>
+                  </div>
+                  <div style={{ fontSize: 20, fontFamily: 'Fraunces', fontWeight: 600, color: 'var(--accent)' }}>
+                    {entry.points}<span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Space Mono', marginLeft: 4 }}>pts</span>
+                  </div>
                 </div>
-                <div style={{ fontSize: 20, fontFamily: 'Fraunces', fontWeight: 600, color: 'var(--accent)' }}>
-                  {entry.points}<span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Space Mono', marginLeft: 4 }}>pts</span>
-                </div>
-              </div>
-            ))
+              ))
+            )}
+          </div>
+
+          <h3 style={{ fontSize: 20, margin: '28px 0 12px' }}>👑 Champions</h3>
+          {seasons.length === 0 ? (
+            <div className="card">
+              <p style={{ color: 'var(--text-dim)', fontSize: 13, margin: 0 }}>
+                Noch keine abgeschlossene Saison. Nach {SEASON_LENGTH} Runden wird hier der erste Champion gekürt.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {seasons.map(season => <SeasonCard key={season.id} season={season} />)}
+            </div>
           )}
         </div>
       )}

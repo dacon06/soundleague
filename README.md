@@ -8,7 +8,7 @@ Eine Music League-ähnliche Web-App zum gemeinsamen Musik entdecken, einreichen 
 - 🎵 Runden mit Kategorien (z.B. "Guilty Pleasure")
 - ▶️ Songsuche über YouTube – inkl. Vorhören direkt in der Suche
 - 🗳️ Anonymes Abstimmen + Kommentare, Reveal am Ende
-- 🏆 Bestenliste über alle Runden
+- 🏁 Saisons: nach 20 abgeschlossenen Runden wird der Punktbeste zum Champion gekürt, die Bestenliste startet neu und das Ergebnis landet im Champions-Archiv (Tab „Saison")
 - 💬 Echtzeit Gruppen-Chat
 - 🔔 Push-Benachrichtigungen bei neuer Runde, Start der Abstimmung & Erinnerungen
 - 📱 Funktioniert als PWA auf iOS, Android und Desktop

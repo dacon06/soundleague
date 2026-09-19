@@ -7,11 +7,19 @@
 import { db, auth } from './firebase'
 import {
   doc, getDoc, collection, query, where, getDocs,
-  addDoc, updateDoc, serverTimestamp,
+  addDoc, updateDoc, serverTimestamp, runTransaction,
 } from 'firebase/firestore'
 import { notifyRound } from './notify'
 
 const actor = () => auth.currentUser?.uid || null
+
+// ─── Saisons ───
+// Eine Saison besteht aus SEASON_LENGTH abgeschlossenen Runden. Danach wird der
+// Punktbeste zum Champion gekürt, das Ergebnis im Archiv (Collection `seasons`)
+// gespeichert und die nächste Saison beginnt.
+// Runden ohne `seasonNumber` (aus der Zeit vor den Saisons) zählen zu Saison 1.
+export const SEASON_LENGTH = 20
+export const seasonOf = (round) => round?.seasonNumber || 1
 
 export function toItem(raw) {
   if (typeof raw === 'string') return { name: raw, description: '' }
@@ -74,8 +82,11 @@ export function formatRunning(round) {
 // die übrigen Mitglieder. Gibt die neue roundId zurück.
 export async function createRound(groupId, item, createdBy, remainingQueue) {
   const { submissionDeadline, votingDeadline } = getCalendarDeadlines()
+  const groupSnap = await getDoc(doc(db, 'groups', groupId))
+  const seasonNumber = groupSnap.data()?.seasonNumber || 1
   const roundRef = await addDoc(collection(db, 'rounds'), {
     groupId,
+    seasonNumber,
     prompt: item.name,
     description: item.description || '',
     status: 'submission',
@@ -125,10 +136,114 @@ export async function advanceToVoting(round) {
 
 export async function finishRound(round) {
   await updateDoc(doc(db, 'rounds', round.id), { status: 'results' })
+  // War das die letzte Runde der Saison? Dann Champion küren — VOR dem Start der
+  // nächsten Runde, damit diese schon zur neuen Saison gehört. Ein Fehler hier darf
+  // den Rundenwechsel nie blockieren; der Abschluss wird sonst bei der nächsten
+  // beendeten Runde nachgeholt.
+  try {
+    await closeSeasonIfComplete(round)
+  } catch (err) {
+    console.error('Saison-Abschluss fehlgeschlagen:', err)
+  }
   const nextStarted = await autoStartNext(round)
   // Startet direkt eine neue Runde, reicht deren Benachrichtigung — sonst gäbe es
   // zwei Pushes im selben Moment.
   if (!nextStarted) notifyRound(round.id, 'results', actor())
+}
+
+// ─── Saison-Ergebnis berechnen ───
+// Punkte pro Einreicher wie in der Bestenliste (Summe aller vergebenen Stimmen),
+// dazu je Runde der Gewinner-Song.
+async function buildSeasonResult(group, seasonRounds) {
+  const ordered = [...seasonRounds].sort(
+    (a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0)
+  )
+  const points = {}
+  const knownNames = {}
+  const roundSummaries = []
+
+  for (const r of ordered) {
+    const [votesSnap, subsSnap] = await Promise.all([
+      getDocs(query(collection(db, 'votes'), where('roundId', '==', r.id))),
+      getDocs(query(collection(db, 'submissions'), where('roundId', '==', r.id))),
+    ])
+    const subs = subsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    subs.forEach(s => { if (s.userName) knownNames[s.userId] = s.userName })
+
+    const perSong = {}
+    votesSnap.docs.forEach(d => {
+      const v = d.data()
+      if (!v.submitterUserId) return
+      points[v.submitterUserId] = (points[v.submitterUserId] || 0) + (v.points || 0)
+      perSong[v.submissionId] = (perSong[v.submissionId] || 0) + (v.points || 0)
+    })
+
+    const top = Math.max(0, ...Object.values(perSong))
+    roundSummaries.push({
+      roundId: r.id,
+      prompt: r.prompt || '',
+      points: top,
+      winners: top > 0
+        ? subs.filter(s => perSong[s.id] === top).map(s => ({
+            userId: s.userId,
+            name: group.memberNames?.[s.userId] || s.userName || 'Anonym',
+            songTitle: s.songTitle || '',
+          }))
+        : [],
+    })
+  }
+
+  // Namen als Momentaufnahme speichern — Mitglieder können die Gruppe später verlassen.
+  const nameOf = (uid) => group.memberNames?.[uid] || knownNames[uid] || 'Anonym'
+  const standings = Object.entries(points)
+    .map(([userId, pts]) => ({ userId, name: nameOf(userId), points: pts }))
+    .sort((a, b) => b.points - a.points)
+  const best = standings[0]?.points || 0
+
+  return {
+    roundCount: ordered.length,
+    // Punktgleichstand an der Spitze → mehrere Champions (geteilter Sieg)
+    champions: best > 0 ? standings.filter(s => s.points === best) : [],
+    standings,
+    rounds: roundSummaries,
+  }
+}
+
+// ─── Saison abschließen, wenn SEASON_LENGTH Runden voll sind ───
+// Gibt die abgeschlossene Saisonnummer zurück (sonst null).
+// Mehrere Clients dürfen gleichzeitig aufrufen: Die Transaktion prüft die Saisonnummer
+// der Gruppe, sodass genau ein Client das Archiv schreibt und die Nummer erhöht.
+export async function closeSeasonIfComplete(finishedRound) {
+  const groupId = finishedRound.groupId
+  const groupRef = doc(db, 'groups', groupId)
+  const groupSnap = await getDoc(groupRef)
+  if (!groupSnap.exists()) return null
+  const group = groupSnap.data()
+  const season = group.seasonNumber || 1
+
+  const roundsSnap = await getDocs(query(collection(db, 'rounds'), where('groupId', '==', groupId)))
+  const seasonRounds = roundsSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => seasonOf(r) === season && r.status === 'results')
+  if (seasonRounds.length < SEASON_LENGTH) return null
+
+  const result = await buildSeasonResult(group, seasonRounds)
+
+  const closed = await runTransaction(db, async (tx) => {
+    const fresh = await tx.get(groupRef)
+    if (!fresh.exists() || (fresh.data().seasonNumber || 1) !== season) return false
+    tx.set(doc(db, 'seasons', `${groupId}_${season}`), {
+      ...result,
+      groupId,
+      seasonNumber: season,
+      closedAt: serverTimestamp(),
+    })
+    tx.update(groupRef, { seasonNumber: season + 1 })
+    // Markiert die letzte Runde → dort wird der Champion auf der Ergebnisseite gezeigt
+    tx.update(doc(db, 'rounds', finishedRound.id), { endsSeason: season })
+    return true
+  })
+  return closed ? season : null
 }
 
 // ─── Fortschritt prüfen und ggf. Phase weiterschalten ───

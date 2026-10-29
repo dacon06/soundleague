@@ -20,7 +20,13 @@ function loadYTApi() {
   })
 }
 
-export default function YouTubePlayer({ videoId, compact = false, autoPlay = false }) {
+// ─── Weiterspielen im Hintergrund ───
+// Browser (v. a. Chrome auf Android / als PWA) pausieren den YouTube-Player, sobald
+// das Fenster minimiert oder die App verlassen wird. Pausiert der Player kurz nach
+// dem Verstecken, ohne dass der Nutzer Pause gedrückt hat, starten wir ihn neu.
+const RESUME_WINDOW_MS = 2000
+
+export default function YouTubePlayer({ videoId, title = '', compact = false, autoPlay = false }) {
   const containerRef = useRef(null)
   const playerRef = useRef(null)
   const intervalRef = useRef(null)
@@ -31,10 +37,27 @@ export default function YouTubePlayer({ videoId, compact = false, autoPlay = fal
   // Während des Ziehens zeigt die Leiste die gezogene Position, nicht die des Players.
   const [scrub, setScrub] = useState(null)
   const draggingRef = useRef(false)
+  // Soll gerade Musik laufen? Ändert sich nur durch Play/Pause des Nutzers.
+  const wantPlayRef = useRef(false)
+  const hiddenAtRef = useRef(0)
 
   useEffect(() => {
     if (!videoId) return
     let player
+
+    // Titel + Play/Pause auf dem Sperrbildschirm / in der Benachrichtigungsleiste
+    const setMediaSession = (p) => {
+      if (!('mediaSession' in navigator)) return
+      try {
+        navigator.mediaSession.metadata = new window.MediaMetadata({
+          title: title || 'Soundleague',
+          artist: 'Soundleague',
+          artwork: [{ src: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' }],
+        })
+        navigator.mediaSession.setActionHandler('play', () => { wantPlayRef.current = true; p.playVideo() })
+        navigator.mediaSession.setActionHandler('pause', () => { wantPlayRef.current = false; p.pauseVideo() })
+      } catch { /* ignoriert */ }
+    }
 
     loadYTApi().then(() => {
       if (!containerRef.current) return
@@ -49,13 +72,22 @@ export default function YouTubePlayer({ videoId, compact = false, autoPlay = fal
             setDuration(e.target.getDuration())
             setReady(true)
             // Vorhören startet direkt; blockt der Browser das, bleibt der Play-Button da.
-            if (autoPlay) { try { e.target.playVideo() } catch { /* ignoriert */ } }
+            if (autoPlay) { wantPlayRef.current = true; try { e.target.playVideo() } catch { /* ignoriert */ } }
           },
           onStateChange: (e) => {
             const YT = window.YT.PlayerState
+            // Vom Browser erzwungene Pause beim Minimieren → direkt weiterspielen
+            if (e.data === YT.PAUSED && wantPlayRef.current && document.hidden &&
+                Date.now() - hiddenAtRef.current < RESUME_WINDOW_MS) {
+              e.target.playVideo()
+              return
+            }
             if (e.data === YT.PLAYING) {
+              wantPlayRef.current = true
               setPlaying(true)
               setDuration(playerRef.current.getDuration())
+              setMediaSession(e.target)
+              clearInterval(intervalRef.current)
               intervalRef.current = setInterval(() => {
                 if (playerRef.current && !draggingRef.current) {
                   setProgress(playerRef.current.getCurrentTime())
@@ -65,7 +97,9 @@ export default function YouTubePlayer({ videoId, compact = false, autoPlay = fal
               setPlaying(false)
               clearInterval(intervalRef.current)
             }
+            if (e.data === YT.PAUSED && !document.hidden) wantPlayRef.current = false
             if (e.data === YT.ENDED) {
+              wantPlayRef.current = false
               setProgress(0)
               setPlaying(false)
             }
@@ -75,7 +109,23 @@ export default function YouTubePlayer({ videoId, compact = false, autoPlay = fal
       playerRef.current = player
     })
 
+    const onVisibility = () => {
+      if (!document.hidden) return
+      hiddenAtRef.current = Date.now()
+      // Manche Browser pausieren, bevor das Event ankommt → kurz danach nachsehen
+      setTimeout(() => {
+        const p = playerRef.current
+        if (!p || !wantPlayRef.current || !document.hidden) return
+        try {
+          if (p.getPlayerState() !== window.YT.PlayerState.PLAYING) p.playVideo()
+        } catch { /* ignoriert */ }
+      }, 300)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      wantPlayRef.current = false
       clearInterval(intervalRef.current)
       try { player?.destroy() } catch {}
       playerRef.current = null
@@ -87,7 +137,8 @@ export default function YouTubePlayer({ videoId, compact = false, autoPlay = fal
 
   const togglePlay = () => {
     if (!playerRef.current || !ready) return
-    playing ? playerRef.current.pauseVideo() : playerRef.current.playVideo()
+    wantPlayRef.current = !playing
+    playing ?playerRef.current.pauseVideo() : playerRef.current.playVideo()
   }
 
   // ─── Seekbar: tippen ODER ziehen ───

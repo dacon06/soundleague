@@ -432,6 +432,19 @@ export default function GroupPage() {
   const currentSeason = group?.seasonNumber || 1
   const seasonDone = rounds.filter(r => r.status === 'results' && seasonOf(r) === currentSeason).length
 
+  // Runden nach Saison gruppieren (neueste Saison zuerst); die Nummerierung
+  // beginnt in jeder Saison wieder bei 1. `rounds` ist schon neueste-zuerst sortiert.
+  const roundsBySeason = Object.entries(
+    rounds.reduce((acc, r) => { (acc[seasonOf(r)] ||= []).push(r); return acc }, {})
+  ).map(([season, list]) => ({ season: Number(season), list }))
+    .sort((a, b) => b.season - a.season)
+
+  // Vergangene Saisons sind eingeklappt, außer dort läuft noch eine Runde
+  const [openSeasons, setOpenSeasons] = useState({})
+  const isSeasonOpen = ({ season, list }) =>
+    openSeasons[season] ?? list.some(r => r.status !== 'results')
+  const toggleSeason = (s) => setOpenSeasons(prev => ({ ...prev, [s.season]: !isSeasonOpen(s) }))
+
   const [skipRound, setSkipRound] = useState(null)
 
   const handleSkip = (round) => {
@@ -662,12 +675,13 @@ export default function GroupPage() {
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {rounds.map((round, i) => (
+            {roundsBySeason.map(s => {
+              const cards = s.list.map((round, i) => (
               <div key={round.id} className="card" style={{ cursor: 'pointer' }} onClick={() => navigate(`/group/${groupId}/round/${round.id}`)}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>RUNDE {rounds.length - i}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>RUNDE {s.list.length - i}</span>
                       <StatusBadge status={round.status} />
                     </div>
                     <h3 style={{ fontSize: 20, marginBottom: round.description ? 4 : 8 }}>{round.prompt}</h3>
@@ -708,7 +722,27 @@ export default function GroupPage() {
                   </div>
                 )}
               </div>
-            ))}
+              ))
+              // Laufende Saison: Runden direkt zeigen
+              if (s.season >= currentSeason) return cards
+              // Abgeschlossene Saison: alle Runden in einer aufklappbaren Box
+              const open = isSeasonOpen(s)
+              return (
+                <div key={`season-${s.season}`} style={{ border: '1px solid var(--border2)', borderRadius: 'var(--radius)', padding: 12 }}>
+                  <button
+                    onClick={() => toggleSeason(s)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-dim)', fontFamily: 'inherit', fontSize: 13 }}
+                  >
+                    <span>🏁 Saison {s.season}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                      {s.list.length} Runde{s.list.length !== 1 ? 'n' : ''}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}><polyline points="9,18 15,12 9,6"/></svg>
+                    </span>
+                  </button>
+                  {open && <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>{cards}</div>}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

@@ -63,8 +63,9 @@ export default function YouTubePlayer({ videoId, title = '', compact = false, au
       if (!containerRef.current) return
       player = new window.YT.Player(containerRef.current, {
         videoId,
-        height: '0',
-        width: '0',
+        // Nicht 0×0: Unsichtbare Null-Größe-Player pausiert der Browser im Hintergrund.
+        height: '1',
+        width: '1',
         playerVars: { autoplay: 0, controls: 0, rel: 0, modestbranding: 1 },
         events: {
           onReady: (e) => {
@@ -189,8 +190,11 @@ export default function YouTubePlayer({ videoId, title = '', compact = false, au
       padding: compact ? '4px 0 0' : '10px 14px',
       marginBottom: compact ? 0 : 10,
     }}>
-      {/* Hidden YouTube player div */}
-      <div ref={containerRef} style={{ display: 'none' }} />
+      {/* YouTube-Player: 1×1 px und durchsichtig statt display:none, sonst zählt er
+          als unsichtbar und stoppt, sobald die App im Hintergrund ist. */}
+      <div style={{ position: 'fixed', left: 0, bottom: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
+        <div ref={containerRef} />
+      </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {/* Play/Pause button */}

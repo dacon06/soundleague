@@ -21,6 +21,7 @@
 <a href="?tiny=1&ms=1">D — unsichtbar + Sperrbildschirm-Steuerung</a>
 <a href="?tiny=1&ms=1&hack=1">E — wie die App (unsichtbar + Steuerung + Neustart-Code)</a>
 <a href="?yt=1">F — normaler YouTube-Player: Play direkt im Video antippen</a>
+<a href="?yt=1&vid=M7lc1UVf-VE">G — wie F, aber mit dem Video aus Googles Demo</a>
 <button id="play">▶ Abspielen</button>
 <div id="wrap"><div id="player"></div></div>
 <div id="log"></div>
@@ -39,7 +40,7 @@
   document.head.appendChild(tag)
   window.onYouTubeIframeAPIReady = () => {
     player = new YT.Player('player', {
-      videoId: 'dQw4w9WgXcQ',
+      videoId: q.get('vid') || 'dQw4w9WgXcQ',
       width: tiny ? '1' : '320', height: tiny ? '1' : '180',
       playerVars: { autoplay: 0, controls: yt ? 1 : 0, rel: 0 },
       events: {

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hintergrund-Test</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 16px; }
+  a { color: #8af; display: block; margin: 8px 0; font-size: 17px; }
+  button { font-size: 18px; padding: 12px 20px; margin: 12px 0; }
+  #log { font-size: 12px; white-space: pre-wrap; color: #aaa; }
+  .tiny { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<h3>Hintergrund-Test</h3>
+<p>Variante: <b id="variant"></b></p>
+<a href="?">A — sichtbarer Player</a>
+<a href="?tiny=1">B — unsichtbarer 1×1-Player</a>
+<a href="?ms=1">C — sichtbar + Sperrbildschirm-Steuerung</a>
+<a href="?tiny=1&ms=1">D — unsichtbar + Sperrbildschirm-Steuerung</a>
+<a href="?tiny=1&ms=1&hack=1">E — wie die App (unsichtbar + Steuerung + Neustart-Code)</a>
+<button id="play">▶ Abspielen</button>
+<div id="wrap"><div id="player"></div></div>
+<div id="log"></div>
+<script>
+  const q = new URLSearchParams(location.search)
+  const tiny = q.has('tiny'), ms = q.has('ms'), hack = q.has('hack')
+  document.getElementById('variant').textContent =
+    [tiny ? 'unsichtbar' : 'sichtbar', ms && 'Steuerung', hack && 'Neustart'].filter(Boolean).join(' + ')
+  if (tiny) document.getElementById('wrap').className = 'tiny'
+  const log = (m) => { document.getElementById('log').textContent += new Date().toLocaleTimeString() + ' ' + m + '\n' }
+  document.addEventListener('visibilitychange', () => log('hidden=' + document.hidden))
+
+  let player, want = false
+  const tag = document.createElement('script')
+  tag.src = 'https://www.youtube.com/iframe_api'
+  document.head.appendChild(tag)
+  window.onYouTubeIframeAPIReady = () => {
+    player = new YT.Player('player', {
+      videoId: 'dQw4w9WgXcQ',
+      width: tiny ? '1' : '320', height: tiny ? '1' : '180',
+      playerVars: { autoplay: 0, controls: 0, rel: 0 },
+      events: {
+        onReady: () => log('bereit'),
+        onStateChange: (e) => {
+          log('state=' + e.data)
+          if (e.data === YT.PlayerState.PLAYING && ms && 'mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({ title: 'Test', artist: 'Soundleague' })
+            navigator.mediaSession.setActionHandler('play', () => { want = true; player.playVideo() })
+            navigator.mediaSession.setActionHandler('pause', () => { want = false; player.pauseVideo() })
+          }
+          if (hack && e.data === YT.PlayerState.PAUSED && want && document.hidden) player.playVideo()
+        },
+      },
+    })
+  }
+  document.getElementById('play').onclick = () => { want = true; player?.playVideo() }
+</script>
+</body>
+</html>

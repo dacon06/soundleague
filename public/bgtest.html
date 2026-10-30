@@ -20,14 +20,15 @@
 <a href="?ms=1">C — sichtbar + Sperrbildschirm-Steuerung</a>
 <a href="?tiny=1&ms=1">D — unsichtbar + Sperrbildschirm-Steuerung</a>
 <a href="?tiny=1&ms=1&hack=1">E — wie die App (unsichtbar + Steuerung + Neustart-Code)</a>
+<a href="?yt=1">F — normaler YouTube-Player: Play direkt im Video antippen</a>
 <button id="play">▶ Abspielen</button>
 <div id="wrap"><div id="player"></div></div>
 <div id="log"></div>
 <script>
   const q = new URLSearchParams(location.search)
-  const tiny = q.has('tiny'), ms = q.has('ms'), hack = q.has('hack')
+  const tiny = q.has('tiny'), ms = q.has('ms'), hack = q.has('hack'), yt = q.has('yt')
   document.getElementById('variant').textContent =
-    [tiny ? 'unsichtbar' : 'sichtbar', ms && 'Steuerung', hack && 'Neustart'].filter(Boolean).join(' + ')
+    [tiny ? 'unsichtbar' : 'sichtbar', yt && 'YouTube-Steuerung', ms && 'Steuerung', hack && 'Neustart'].filter(Boolean).join(' + ')
   if (tiny) document.getElementById('wrap').className = 'tiny'
   const log = (m) => { document.getElementById('log').textContent += new Date().toLocaleTimeString() + ' ' + m + '\n' }
   document.addEventListener('visibilitychange', () => log('hidden=' + document.hidden))
@@ -40,7 +41,7 @@
     player = new YT.Player('player', {
       videoId: 'dQw4w9WgXcQ',
       width: tiny ? '1' : '320', height: tiny ? '1' : '180',
-      playerVars: { autoplay: 0, controls: 0, rel: 0 },
+      playerVars: { autoplay: 0, controls: yt ? 1 : 0, rel: 0 },
       events: {
         onReady: () => log('bereit'),
         onStateChange: (e) => {
@@ -55,6 +56,7 @@
       },
     })
   }
+  if (yt) document.getElementById('play').style.display = 'none'
   document.getElementById('play').onclick = () => { want = true; player?.playVideo() }
 </script>
 </body>

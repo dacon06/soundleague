@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!-- Unsichtbarer YouTube-Player für die native Android-App (wird dort in einer WebView geladen).
+     Liegt auf der Website, damit YouTube den Player wie auf soundleague.vercel.app akzeptiert. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>html,body{margin:0;padding:0;background:#000;overflow:hidden;height:100%}#p{width:100%;height:100%}</style>
+</head>
+<body>
+  <div id="p"></div>
+  <script>
+    var player = null, ready = false, pending = null
+    var native = window.SoundleagueNative
+
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('p', {
+        height: '100%', width: '100%',
+        playerVars: { autoplay: 0, controls: 0, rel: 0, playsinline: 1, origin: location.origin },
+        events: {
+          onReady: function () {
+            ready = true
+            if (native) native.onReady()
+            if (pending) { load(pending); pending = null }
+          },
+          onStateChange: function (e) {
+            if (native) native.onState(e.data, player.getDuration() || 0)
+          },
+          onError: function (e) {
+            if (native) native.onError(e.data)
+          },
+        },
+      })
+    }
+
+    function load(id) {
+      if (!ready) { pending = id; return }
+      player.loadVideoById(id)
+    }
+    function play() { if (ready) player.playVideo() }
+    function pause() { if (ready) player.pauseVideo() }
+    function stop() { if (ready) player.stopVideo() }
+    function seek(s) { if (ready) player.seekTo(s, true) }
+
+    // Fortschritt an die App melden
+    setInterval(function () {
+      if (!ready || !native || !player.getCurrentTime) return
+      native.onTime(player.getCurrentTime() || 0, player.getDuration() || 0)
+    }, 500)
+
+    var tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  </script>
+</body>
+</html>

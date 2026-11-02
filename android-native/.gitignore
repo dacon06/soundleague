@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+# Geheim: niemals committen
+app/release.keystore
+app/google-services.json

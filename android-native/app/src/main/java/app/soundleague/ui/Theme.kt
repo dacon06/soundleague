@@ -1,8 +1,10 @@
 package app.soundleague.ui
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 // Farben wie auf der Website (src/styles/global.css)
@@ -52,5 +54,8 @@ private val scheme = darkColorScheme(
 
 @Composable
 fun SoundleagueTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme) {
+        // Standard-Schriftfarbe für alle Texte ohne eigene Farbe — sonst wären sie schwarz
+        CompositionLocalProvider(LocalContentColor provides C.Text, content = content)
+    }
 }

@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import android.webkit.WebViewClient
 import app.soundleague.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,8 @@ object Player {
         wv.settings.domStorageEnabled = true
         wv.settings.mediaPlaybackRequiresUserGesture = false
         wv.webViewClient = WebViewClient()
+        // Der Player soll auch im Hintergrund volle Priorität behalten
+        wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
         wv.addJavascriptInterface(Bridge(), "SoundleagueNative")
         wv.loadUrl("${BuildConfig.WEB_BASE}/native-player.html")
         webView = wv

@@ -17,9 +17,10 @@ object C {
     val Accent2 = Color(0xFFF5A623)
     val AccentDim = Color(0x247C6AF5)
     val Accent2Dim = Color(0x21F5A623)
-    val Text = Color(0xFFF5F4FF)
-    val TextDim = Color(0xFF8A8AA0)
-    val TextMuted = Color(0xFF5A5A6E)
+    // Schrift heller als auf der Website, damit sie auf dem dunklen Hintergrund gut lesbar ist
+    val Text = Color(0xFFFFFFFF)
+    val TextDim = Color(0xFFCFCFDC)
+    val TextMuted = Color(0xFFA3A3B5)
     val Danger = Color(0xFFF06060)
     val Success = Color(0xFF48D597)
     val YouTubeRed = Color(0xFFFF0000)

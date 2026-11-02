@@ -7,17 +7,14 @@ import android.webkit.WebView
 
 /**
  * WebView für den YouTube-Player. Solange ein Song geladen ist, meldet sie sich beim
- * Minimieren weiter als „sichtbar" — sonst pausiert YouTube die Wiedergabe.
+ * Minimieren und bei gesperrtem Bildschirm weiter als „sichtbar" — sonst pausiert YouTube.
  */
 @SuppressLint("ViewConstructor")
 class PlayerWebView(context: Context) : WebView(context) {
     var keepVisible = false
 
     override fun onWindowVisibilityChanged(visibility: Int) {
-        if (keepVisible && visibility != View.GONE) {
-            super.onWindowVisibilityChanged(View.VISIBLE)
-        } else {
-            super.onWindowVisibilityChanged(visibility)
-        }
+        // Beim Minimieren meldet Android GONE oder INVISIBLE → beides überschreiben
+        super.onWindowVisibilityChanged(if (keepVisible) View.VISIBLE else visibility)
     }
 }

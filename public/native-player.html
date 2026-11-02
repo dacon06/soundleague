@@ -12,6 +12,8 @@
   <script>
     var player = null, ready = false, pending = null
     var native = window.SoundleagueNative
+    // Soll gerade Musik laufen? Ändert sich nur durch Befehle aus der App.
+    var wantPlay = false, resumeTries = 0
 
     function onYouTubeIframeAPIReady() {
       player = new YT.Player('p', {
@@ -24,6 +26,14 @@
             if (pending) { load(pending); pending = null }
           },
           onStateChange: function (e) {
+            // Pause, die niemand angefordert hat (z. B. beim Minimieren) → direkt weiterspielen
+            if (e.data === 2 && wantPlay && resumeTries < 3) {
+              resumeTries++
+              setTimeout(function () { if (wantPlay) player.playVideo() }, 250)
+              return
+            }
+            if (e.data === 1) resumeTries = 0
+            if (e.data === 0) wantPlay = false
             if (native) native.onState(e.data, player.getDuration() || 0)
           },
           onError: function (e) {
@@ -34,12 +44,13 @@
     }
 
     function load(id) {
+      wantPlay = true; resumeTries = 0
       if (!ready) { pending = id; return }
       player.loadVideoById(id)
     }
-    function play() { if (ready) player.playVideo() }
-    function pause() { if (ready) player.pauseVideo() }
-    function stop() { if (ready) player.stopVideo() }
+    function play() { wantPlay = true; resumeTries = 0; if (ready) player.playVideo() }
+    function pause() { wantPlay = false; if (ready) player.pauseVideo() }
+    function stop() { wantPlay = false; if (ready) player.stopVideo() }
     function seek(s) { if (ready) player.seekTo(s, true) }
 
     // Fortschritt an die App melden

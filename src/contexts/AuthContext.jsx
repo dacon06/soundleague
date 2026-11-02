@@ -6,10 +6,8 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
-  GoogleAuthProvider,
-  signInWithPopup,
 } from 'firebase/auth'
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 
 const AuthContext = createContext(null)
 
@@ -39,25 +37,10 @@ export function AuthProvider({ children }) {
 
   const login = (email, password) => signInWithEmailAndPassword(auth, email, password)
 
-  const loginWithGoogle = async () => {
-    const provider = new GoogleAuthProvider()
-    const cred = await signInWithPopup(auth, provider)
-    const profileDoc = await getDoc(doc(db, 'users', cred.user.uid))
-    if (!profileDoc.exists()) {
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        displayName: cred.user.displayName || 'Unbekannt',
-        email: cred.user.email,
-        createdAt: serverTimestamp(),
-        totalPoints: 0,
-      })
-    }
-    return cred.user
-  }
-
   const logout = () => signOut(auth)
 
   return (
-    <AuthContext.Provider value={{ user, loading, register, login, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, loading, register, login, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   )

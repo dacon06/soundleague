@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.vercel.soundleague.twa",
+        "sha256_cert_fingerprints": ["C1:5B:A2:C9:BA:4C:02:D8:79:8C:60:1D:82:4B:13:A9:94:64:91:99:D9:F9:D5:95:57:18:86:D6:46:9E:27:50"]
+      }
+    }]

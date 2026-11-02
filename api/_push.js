@@ -3,6 +3,7 @@
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getMessaging } from 'firebase-admin/messaging'
 import webpush from 'web-push'
 
 let vapidReady = false
@@ -49,8 +50,26 @@ export async function getSubscriptionsForUsers(db, userIds) {
   return snaps.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() })))
 }
 
+// FCM-Fehler, bei denen der Token dauerhaft ungültig ist (App deinstalliert o. ä.)
+const DEAD_FCM_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+])
+
+function sendFcm(sub, payload) {
+  return getMessaging().send({
+    token: sub.token,
+    notification: { title: payload.title, body: payload.body },
+    data: { url: payload.url || '/' },
+    android: {
+      priority: 'high',
+      notification: { tag: payload.tag || 'soundleague' },
+    },
+  })
+}
+
 /**
- * Schickt payload an alle übergebenen Abos und räumt abgelaufene Abos auf.
+ * Schickt payload an alle übergebenen Abos (Web Push oder FCM) und räumt abgelaufene Abos auf.
  * Gibt { sent, removed } zurück.
  */
 export async function sendToSubscriptions(db, subs, payload) {
@@ -61,6 +80,17 @@ export async function sendToSubscriptions(db, subs, payload) {
 
   await Promise.all(
     subs.map(async sub => {
+      if (sub.type === 'fcm') {
+        if (!sub.token) { dead.push(sub.id); return }
+        try {
+          await sendFcm(sub, payload)
+          sent++
+        } catch (err) {
+          if (DEAD_FCM_CODES.has(err.code)) dead.push(sub.id)
+          else console.error('FCM error:', sub.id, err.code, err.message)
+        }
+        return
+      }
       if (!sub.endpoint || !sub.keys) { dead.push(sub.id); return }
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body)

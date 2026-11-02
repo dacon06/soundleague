@@ -25,7 +25,7 @@ export default function Chat({ groupId }) {
       const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       
       // Show push notification for new messages from others
-      if (!isFirst && Notification.permission === 'granted') {
+      if (!isFirst && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         const prev = msgs.slice(0, -1)
         const newest = msgs[msgs.length - 1]
         if (newest && newest.userId !== user.uid) {

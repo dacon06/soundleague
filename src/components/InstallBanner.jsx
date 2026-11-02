@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Capacitor } from '@capacitor/core'
 
 export default function InstallBanner() {
   const [show, setShow] = useState(false)
@@ -11,6 +12,7 @@ export default function InstallBanner() {
   useEffect(() => {
     if (dismissed) return
     if (window.matchMedia('(display-mode: standalone)').matches) return
+    if (Capacitor.isNativePlatform()) return // läuft schon als App
 
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream
     setIsIOS(ios)

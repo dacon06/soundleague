@@ -1,0 +1,9 @@
+{
+  "appId": "app.soundleague",
+  "appName": "Soundleague",
+  "webDir": "dist",
+  "server": {
+    "url": "https://soundleague.vercel.app",
+    "androidScheme": "https"
+  }
+}

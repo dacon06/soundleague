@@ -264,33 +264,16 @@ function InviteModal({ code, onClose }) {
 
 // ─── Notification Banner ───
 function NotificationBanner() {
-  const { supported, subscribe } = usePushNotifications()
+  const { supported, permission, subscribe } = usePushNotifications()
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [localPerm, setLocalPerm] = useState(() => {
-    try { return Notification.permission } catch { return 'unsupported' }
-  })
 
-  const notifAvailable = typeof Notification !== 'undefined'
-
-  if (!notifAvailable) return null
-  if (localPerm === 'granted' && !success) return null
+  if (!supported) return null
+  if (permission === 'granted' && !success) return null
 
   const handleEnable = async () => {
     setLoading(true)
-    try {
-      // Try push notifications first if supported
-      if (supported) {
-        const ok = await subscribe()
-        if (ok) { setSuccess(true); setLocalPerm('granted'); setLoading(false); return }
-      }
-      // Fallback: just request browser notification permission
-      const perm = await Notification.requestPermission()
-      setLocalPerm(perm)
-      if (perm === 'granted') setSuccess(true)
-    } catch (err) {
-      console.error(err)
-    }
+    if (await subscribe()) setSuccess(true)
     setLoading(false)
   }
 
@@ -300,9 +283,9 @@ function NotificationBanner() {
     </div>
   )
 
-  if (localPerm === 'denied') return (
+  if (permission === 'denied') return (
     <div style={{ background: 'rgba(240,96,96,0.08)', border: '1px solid rgba(240,96,96,0.2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-dim)' }}>
-      🔕 Benachrichtigungen blockiert — in den Browsereinstellungen erlauben
+      🔕 Benachrichtigungen blockiert — in den Einstellungen erlauben
     </div>
   )
 

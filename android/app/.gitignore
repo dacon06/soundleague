@@ -1,2 +1,6 @@
 /build/*
 !/build/.npmkeep
+
+# Geheim: niemals committen
+release.keystore
+google-services.json

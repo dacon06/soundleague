@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useId } from 'react'
+import { reportPlaying } from '../backgroundAudio'
 
 let ytApiReady = false
 let ytApiCallbacks = []
@@ -40,6 +41,7 @@ export default function YouTubePlayer({ videoId, title = '', compact = false, au
   // Soll gerade Musik laufen? Ändert sich nur durch Play/Pause des Nutzers.
   const wantPlayRef = useRef(false)
   const hiddenAtRef = useRef(0)
+  const playerId = useId()
 
   useEffect(() => {
     if (!videoId) return
@@ -88,6 +90,11 @@ export default function YouTubePlayer({ videoId, title = '', compact = false, au
               setPlaying(true)
               setDuration(playerRef.current.getDuration())
               setMediaSession(e.target)
+              // Android-App: Musik soll beim Minimieren weiterlaufen
+              reportPlaying(playerId, true, {
+                title,
+                pause: () => { wantPlayRef.current = false; e.target.pauseVideo() },
+              })
               clearInterval(intervalRef.current)
               intervalRef.current = setInterval(() => {
                 if (playerRef.current && !draggingRef.current) {
@@ -97,6 +104,8 @@ export default function YouTubePlayer({ videoId, title = '', compact = false, au
             } else {
               setPlaying(false)
               clearInterval(intervalRef.current)
+              // Puffern ist keine Pause – sonst würde die App kurz "aufhören"
+              if (e.data !== YT.BUFFERING) reportPlaying(playerId, false)
             }
             if (e.data === YT.PAUSED && !document.hidden) wantPlayRef.current = false
             if (e.data === YT.ENDED) {
@@ -128,6 +137,7 @@ export default function YouTubePlayer({ videoId, title = '', compact = false, au
       document.removeEventListener('visibilitychange', onVisibility)
       wantPlayRef.current = false
       clearInterval(intervalRef.current)
+      reportPlaying(playerId, false)
       try { player?.destroy() } catch {}
       playerRef.current = null
       setReady(false)

@@ -70,6 +70,7 @@ import app.soundleague.data.toSubmission
 import app.soundleague.data.toVote
 import app.soundleague.player.Player
 import com.google.firebase.firestore.FieldValue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -695,17 +696,27 @@ private fun SongSearchSheet(groupId: String, onSelect: (Song) -> Unit, onDismiss
         }
     }
 
-    // Suche mit kurzer Verzögerung beim Tippen
+    // Suche mit kurzer Verzögerung beim Tippen — ein kompletter YouTube-Link wird sofort geladen und ausgewählt (wie bei w2g)
     LaunchedEffect(query) {
-        if (query.trim().length < 3) {
+        val linkId = YouTube.videoIdFromLink(query)
+        if (linkId == null && query.trim().length < 3) {
             results = emptyList()
             return@LaunchedEffect
         }
-        delay(500)
+        if (linkId == null) delay(500)
         loading = true
         error = ""
         try {
-            results = YouTube.search(query)
+            if (linkId != null) {
+                results = emptyList()
+                val song = YouTube.video(linkId)
+                results = listOf(song)
+                selected = song
+            } else {
+                results = YouTube.search(query)
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.localizedMessage ?: "Suche fehlgeschlagen"
         } finally {
@@ -731,7 +742,7 @@ private fun SongSearchSheet(groupId: String, onSelect: (Song) -> Unit, onDismiss
             Gap(12.dp)
             OutlinedTextField(
                 value = query, onValueChange = { query = it },
-                placeholder = { Text("Song oder Künstler suchen…") },
+                placeholder = { Text("Song, Künstler oder YouTube-Link…") },
                 singleLine = true, colors = fieldColors(), modifier = Modifier.fillMaxWidth(),
             )
             Gap(12.dp)

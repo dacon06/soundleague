@@ -7,6 +7,55 @@ function decodeHtml(str) {
   return txt.value
 }
 
+function toSong(id, snippet) {
+  return {
+    id,
+    title: decodeHtml(snippet.title),
+    channelTitle: decodeHtml(snippet.channelTitle),
+    thumbnail: snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || '',
+    publishedAt: snippet.publishedAt,
+    videoUrl: `https://www.youtube.com/watch?v=${id}`,
+    embedUrl: `https://www.youtube.com/embed/${id}?autoplay=1`,
+  }
+}
+
+// ─── Link ───
+// Erkennt YouTube-Links (watch, youtu.be, shorts, embed, live, music.youtube) und gibt die Video-ID zurück
+export function extractVideoId(input) {
+  const text = input?.trim()
+  if (!text || /\s/.test(text)) return null
+  let url
+  try { url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`) }
+  catch { return null }
+
+  const host = url.hostname.replace(/^(www|m|music)\./, '')
+  let id = null
+  if (host === 'youtu.be') id = url.pathname.split('/')[1]
+  else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    if (url.pathname === '/watch') id = url.searchParams.get('v')
+    else {
+      const match = url.pathname.match(/^\/(shorts|embed|live|v)\/([^/?#]+)/)
+      if (match) id = match[2]
+    }
+  }
+  return id && /^[\w-]{11}$/.test(id) ? id : null
+}
+
+export async function getVideoById(videoId) {
+  const params = new URLSearchParams({ part: 'snippet', id: videoId, key: YT_API_KEY })
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`)
+  const data = await res.json()
+
+  if (!res.ok) {
+    console.error('YouTube API error:', data)
+    throw new Error(data.error?.message || 'YouTube API Fehler')
+  }
+
+  const item = data.items?.[0]
+  if (!item) throw new Error('Video nicht gefunden')
+  return toSong(item.id, item.snippet)
+}
+
 // ─── Search ───
 export async function searchSongs(query) {
   if (!query || query.trim().length < 3) return []
@@ -28,15 +77,7 @@ export async function searchSongs(query) {
     throw new Error(data.error?.message || 'YouTube API Fehler')
   }
 
-  return (data.items || []).map(item => ({
-    id: item.id.videoId,
-    title: decodeHtml(item.snippet.title),
-    channelTitle: decodeHtml(item.snippet.channelTitle),
-    thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-    publishedAt: item.snippet.publishedAt,
-    videoUrl: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-    embedUrl: `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1`,
-  }))
+  return (data.items || []).map(item => toSong(item.id.videoId, item.snippet))
 }
 
 // ─── Playlist ───

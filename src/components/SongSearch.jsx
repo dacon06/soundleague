@@ -1,12 +1,14 @@
-import { useState, useCallback, useEffect } from 'react'
-import { searchSongs } from '../youtube'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { searchSongs, extractVideoId, getVideoById } from '../youtube'
 import YouTubePlayer from './YouTubePlayer'
 import { db } from '../firebase'
 import { collection, query as fsQuery, where, getDocs, doc, getDoc } from 'firebase/firestore'
 
 function debounce(fn, delay) {
   let timer
-  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay) }
+  const debounced = (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay) }
+  debounced.cancel = () => clearTimeout(timer)
+  return debounced
 }
 
 function parseTitle(title) {
@@ -49,17 +51,40 @@ export default function SongSearch({ onSelect, onClose, groupId }) {
     loadUsed()
   }, [groupId])
 
+  // Verhindert, dass eine ältere, langsamere Anfrage neuere Ergebnisse überschreibt
+  const requestId = useRef(0)
+
   const doSearch = useCallback(
     debounce(async (q) => {
+      const id = ++requestId.current
       if (!q || q.trim().length < 3) { setResults([]); return }
       setLoading(true); setError(''); setPreview(null)
-      try { setResults(await searchSongs(q)) }
-      catch (e) { setError(e.message) }
-      finally { setLoading(false) }
+      try {
+        const songs = await searchSongs(q)
+        if (id === requestId.current) setResults(songs)
+      } catch (e) { if (id === requestId.current) setError(e.message) }
+      finally { if (id === requestId.current) setLoading(false) }
     }, 500), []
   )
 
-  const handleQuery = (e) => { setQuery(e.target.value); doSearch(e.target.value) }
+  // Kompletter YouTube-Link → Video direkt laden und auswählen (wie bei w2g)
+  const loadLink = async (videoId) => {
+    const id = ++requestId.current
+    setLoading(true); setError(''); setResults([]); setPreview(null)
+    try {
+      const song = await getVideoById(videoId)
+      if (id === requestId.current) { setResults([song]); setSelected(song) }
+    } catch (e) { if (id === requestId.current) setError(e.message) }
+    finally { if (id === requestId.current) setLoading(false) }
+  }
+
+  const handleQuery = (e) => {
+    const value = e.target.value
+    setQuery(value)
+    const videoId = extractVideoId(value)
+    if (videoId) { doSearch.cancel(); loadLink(videoId) }
+    else doSearch(value)
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -70,10 +95,10 @@ export default function SongSearch({ onSelect, onClose, groupId }) {
           <button onClick={onClose} className="btn btn-ghost btn-sm">✕</button>
         </div>
         <div className="modal-body">
-          <input autoFocus value={query} onChange={handleQuery} placeholder="Song oder Künstler suchen…" style={{ marginBottom: 16 }} />
+          <input autoFocus value={query} onChange={handleQuery} placeholder="Song, Künstler oder YouTube-Link…" style={{ marginBottom: 16 }} />
           {error && <div className="error-msg">{error}</div>}
           {loading && <div className="loading-center" style={{ minHeight: 80 }}><div className="spinner" /></div>}
-          {!loading && results.length === 0 && query.length >= 3 && (
+          {!loading && !error && results.length === 0 && query.length >= 3 && (
             <p style={{ color: 'var(--text-dim)', fontSize: 13, textAlign: 'center', padding: 24 }}>Keine Ergebnisse für „{query}"</p>
           )}
 
